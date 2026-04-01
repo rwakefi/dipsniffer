@@ -8,6 +8,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Ensure PATH includes common Mac/Linux tool locations (node, python, homebrew)
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export GEMINI_API_KEY="AIzaSyDFSBFXVXs-rc8mDbnVANjsc0Aw5WXLqvY"
 
 echo "Starting DipSniffer Trading Bot..."
 python3 "$DIR/kraken-swing-bot.py" --loop &

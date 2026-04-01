@@ -409,13 +409,24 @@
   }
 
   .trade-entry {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 2fr 3fr 1fr 1fr 1.5fr;
     align-items: center;
-    padding: 8px 0;
+    padding: 10px 0;
     border-bottom: 1px solid var(--swamp-border);
     font-family: var(--mono);
     font-size: 0.8rem;
+  }
+
+  .trade-header {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    border-bottom: 2px solid var(--swamp-border) !important;
+    padding-bottom: 12px !important;
+    margin-bottom: 4px;
   }
 
   .trade-entry:last-child { border-bottom: none; }
@@ -431,6 +442,30 @@
     font-size: 0.8rem;
     text-align: center;
     padding: 16px;
+  }
+
+  .log-toggle {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: 1px dashed var(--swamp-border);
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 12px;
+    margin-top: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .log-toggle:hover {
+    background: rgba(46, 204, 113, 0.05);
+    color: var(--text-secondary);
+    border-color: var(--text-secondary);
+    border-style: solid;
   }
 
   .footer {
@@ -546,6 +581,10 @@
       <div class="stat-number" id="tradeCount">--</div>
     </div>
     <div class="stat-group">
+      <div class="position-label">Total Fees</div>
+      <div class="stat-number negative" id="totalFees">--</div>
+    </div>
+    <div class="stat-group">
       <div class="position-label">Stop-Loss</div>
       <div class="stat-number" id="stopLoss">--</div>
     </div>
@@ -583,6 +622,12 @@
 <script>
   const STATUS_URL = 'status.json';
   let lastData = null;
+  let showFullLog = false;
+
+  function toggleLog() {
+    showFullLog = !showFullLog;
+    if (lastData) renderTradeLog(lastData.last_trades);
+  }
 
   function formatPrice(price) {
     if (price >= 1000) return '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -682,23 +727,42 @@
       return;
     }
 
-    const entries = trades.reverse().map(t => {
+    const header = `
+      <div class="trade-entry trade-header">
+        <span>Action & Asset</span>
+        <span>Details (Price × Qty)</span>
+        <span>Fee</span>
+        <span>P&L</span>
+        <span style="text-align: right">Time</span>
+      </div>
+    `;
+
+    const visibleTrades = showFullLog ? [...trades].reverse() : [...trades].reverse().slice(0, 10);
+    
+    const entries = visibleTrades.map(t => {
       const actionClass = t.action.toLowerCase();
-      const pnlHtml = t.pnl !== undefined
-        ? `<span class="trade-pnl ${t.pnl >= 0 ? 'positive' : 'negative'}">${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}</span>`
-        : '';
+      const pnlValue = t.pnl !== undefined ? (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) : '--';
+      const pnlClass = t.pnl !== undefined ? (t.pnl >= 0 ? 'positive' : 'negative') : '';
+      const feeValue = t.fee !== undefined ? '$' + t.fee.toFixed(4) : '--';
       const time = t.time ? timeAgo(t.time) : '';
+      
       return `
         <div class="trade-entry">
           <span class="trade-action ${actionClass}">${t.action === 'BUY' ? '🐊' : '💰'} ${t.action} ${t.symbol}</span>
           <span>${formatPrice(t.price)} × ${t.quantity}</span>
-          ${pnlHtml}
-          <span style="color: var(--text-muted)">${time}</span>
+          <span style="color: var(--text-muted)">${feeValue}</span>
+          <span class="trade-pnl ${pnlClass}">${pnlValue}</span>
+          <span style="color: var(--text-muted); text-align: right">${time}</span>
         </div>
       `;
     }).join('');
 
-    container.innerHTML = `<h3>🐊 Recent Kills</h3>${entries}`;
+    let toggleBtn = '';
+    if (trades.length > 10) {
+      toggleBtn = `<button class="log-toggle" onclick="toggleLog()">${showFullLog ? '↑ Show Recent 10' : '↓ Show All (' + trades.length + ' trades)'}</button>`;
+    }
+
+    container.innerHTML = `<h3>🐊 Recent Kills</h3>${header}${entries}${toggleBtn}`;
   }
 
   async function refresh() {
@@ -742,7 +806,9 @@
 
       document.getElementById('tradeCount').textContent = data.trade_count;
 
-      // Coins — sorted by composite strength (highest first), held coin last
+      // Fees
+      const feesEl = document.getElementById('totalFees');
+      feesEl.textContent = '$' + (data.total_fees || 0).toFixed(2);
       const grid = document.getElementById('coinGrid');
       const sorted = [...data.coins].sort((a, b) => {
         const aHeld = a.symbol === data.position ? 1 : 0;

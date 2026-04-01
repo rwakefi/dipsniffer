@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Kraken Swing Trading Bot — DipSniffer 🐊
 Monitors 17 coins on Kraken and concentrates capital
@@ -42,6 +43,7 @@ _user_site = site.getusersitepackages()
 if _user_site not in sys.path:
     sys.path.insert(0, _user_site)
 import ccxt
+import google.generativeai as genai
 
 # ─── Configuration ───────────────────────────────────────────────
 STATE_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-state.json")
@@ -133,7 +135,9 @@ class SQLiteLogger:
                         price_72h REAL NULL,
                         measured_at_6h TEXT NULL,
                         measured_at_24h TEXT NULL,
-                        measured_at_72h TEXT NULL
+                        measured_at_72h TEXT NULL,
+                        entry_fee REAL NULL,
+                        exit_fee REAL NULL
                     )
                 """)
                 
@@ -227,8 +231,9 @@ class SQLiteLogger:
                         conn.execute("""
                             INSERT OR IGNORE INTO trade_attribution (
                                 position_id, symbol, entry_time, entry_price, quantity,
-                                signal_family, entry_reason, decision_context, strength_score
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                signal_family, entry_reason, decision_context, strength_score,
+                                entry_fee
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             trade["position_id"],
                             trade["symbol"],
@@ -238,7 +243,8 @@ class SQLiteLogger:
                             trade.get("signal_family"),
                             trade.get("entry_reason"),
                             trade.get("decision_context"),
-                            trade.get("strength_score")
+                            trade.get("strength_score"),
+                            trade.get("fee")
                         ))
                     elif trade.get("action") == "EXIT":
                         conn.execute("""
@@ -248,7 +254,8 @@ class SQLiteLogger:
                                 exit_reason = ?,
                                 pnl = ?,
                                 pnl_pct = ?,
-                                is_closed = 1
+                                is_closed = 1,
+                                exit_fee = ?
                             WHERE position_id = ?
                         """, (
                             trade.get("time"),
@@ -256,6 +263,7 @@ class SQLiteLogger:
                             trade.get("reason"),
                             trade.get("pnl"),
                             trade.get("pnl_pct"),
+                            trade.get("fee"),
                             trade["position_id"]
                         ))
 
@@ -629,29 +637,36 @@ def get_funding_rate(symbol: str) -> tuple[float | None, bool]:
 
 # ─── Gemini CLI Sentiment Filter ─────────────────────────────────
 import shutil
-_GEMINI_KNOWN_PATH = os.path.expanduser("~/.npm-global/bin/gemini")
-GEMINI_CLI = shutil.which("gemini") or (
-    _GEMINI_KNOWN_PATH if os.path.isfile(_GEMINI_KNOWN_PATH) else "gemini"
-)
-
 def gemini_sentiment(prompt: str) -> str | None:
-    """Call Gemini CLI (Flash) for a one-word sentiment check.
+    """Call Gemini Flash via Python SDK for a one-word sentiment check.
     Returns the parsed response or None on failure."""
     try:
-        result = subprocess.run(
-            [GEMINI_CLI, "-p", prompt, "-m", "flash",
-             "--allowed-mcp-server-names", "none"],
-            capture_output=True, text=True, timeout=120, cwd="/tmp",
-            stdin=subprocess.DEVNULL
-        )
-        if result.returncode != 0:
-            log(f"  ⚠️ Gemini CLI error (Code {result.returncode}):\n{result.stderr.strip()}")
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            log("  ⚠️ GEMINI_API_KEY not found in environment.")
             return None
-        # Extract last non-empty line (CLI may output preamble noise before response)
-        lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
-        return lines[-1] if lines else None
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        log(f"  ⚠️ Gemini CLI unavailable: {e}")
+            
+        genai.configure(api_key=api_key)
+        # Use a stable flash model
+        # Using a model available to this API key
+        model_name = "gemini-3.1-flash-lite-preview"
+        model = genai.GenerativeModel(model_name)
+        
+        log(f"  🤖 Prompting Gemini ({model.model_name})...")
+        response = model.generate_content(prompt)
+        if not response or not response.text:
+            log("  ⚠️ Gemini returned empty response.")
+            return None
+            
+        # Extract last non-empty line (to mimic CLI behavior)
+        lines = [l.strip() for l in response.text.strip().splitlines() if l.strip()]
+        res = lines[-1] if lines else None
+        log(f"  🤖 Gemini verdict: {res}")
+        return res
+    except Exception as e:
+        log(f"  ⚠️ Gemini SDK error (type: {type(e).__name__}): {e}")
+        import traceback
+        log(f"  ⚠️ Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -896,6 +911,20 @@ def place_order(side: str, symbol: str, volume: float, order_type: str = "market
             result = _with_retry(_exchange.create_market_buy_order, symbol, volume)
         else:
             result = _with_retry(_exchange.create_market_sell_order, symbol, volume)
+            
+        # Try to extract the fee if possible (some exchanges include it, some don't)
+        # Note: For many exchanges, the fee is only available if we fetch the order details again
+        # or if it's a market order that filled instantly.
+        if result and 'id' in result:
+            time.sleep(1.0) # Give market matching a second to finalize
+            try:
+                # Fetch order details to get definitive 'filled', 'cost', and 'fee'
+                final_order = _with_retry(_exchange.fetch_order, result['id'], symbol)
+                if final_order:
+                    return final_order
+            except Exception as e:
+                log(f"  ⚠️ Could not fetch final order details for fee tracking: {e}")
+                
         return result
     except ccxt.InsufficientFunds as e:
         log(f"ORDER FAILED: Insufficient funds — {e}")
@@ -919,6 +948,19 @@ def _with_retry(func, *args, **kwargs):
             delay = base_delay * (2**attempt)
             log(f"  ⏱️ Retry {attempt + 1}/{max_retries} after {delay:.1f}s: {type(e).__name__}")
             time.sleep(delay)
+
+def _extract_fee(result: dict) -> float:
+    """Extract total fee cost from CCXT order result."""
+    if not result: return 0.0
+    fee = result.get('fee')
+    if fee and isinstance(fee, dict):
+        return float(fee.get('cost') or 0.0)
+    # Fallback for Kraken info structure if top-level fee is missing
+    info = result.get('info', {})
+    if isinstance(info, dict):
+        # some exchanges put fee in 'fee' key inside info
+        return float(info.get('fee') or 0.0)
+    return 0.0
 
 # ─── Technical Indicators ────────────────────────────────────────
 def calc_rsi(closes: list[float], period: int = RSI_PERIOD) -> float | None:
@@ -1640,6 +1682,7 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
     log(f"  ✅ BOUGHT {quantity} {symbol} @ ${price:.2f} (${buy_amount:.2f})")
     log(f"     Stop-loss: ${stop_loss:.2f} | RSI: {analysis['rsi']} | BB pos: {analysis['bb_position']}")
 
+    fee = _extract_fee(result)
     state["trades"].append({
         "action": "BUY",
         "symbol": symbol,
@@ -1647,6 +1690,7 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
         "quantity": quantity,
         "time": state["entry_time"],
         "rsi": analysis["rsi"],
+        "fee": fee
     })
 
     if telemetry is not None:
@@ -1661,6 +1705,7 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
             "entry_reason": entry_reason,
             "decision_context": f"bb_pos={analysis.get('bb_position')} rsi={analysis.get('rsi')}",
             "strength_score": analysis.get("strength"),
+            "fee": fee
         })
 
     return state
@@ -1695,6 +1740,7 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
     log(f"  ✅ SOLD {quantity} {symbol} @ ${current_price:.2f} ({reason})")
     log(f"     P&L: ${pnl:+.2f} ({pnl_pct:+.1f}%) | Total P&L: ${state['total_pnl']:+.2f}")
 
+    fee = _extract_fee(result)
     state["trades"].append({
         "action": "SELL",
         "symbol": symbol,
@@ -1704,6 +1750,7 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
         "reason": reason,
         "pnl": round(pnl, 2),
         "pnl_pct": round(pnl_pct, 2),
+        "fee": fee
     })
 
     if telemetry is not None and state.get("position_id"):
@@ -1717,6 +1764,7 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
             "reason": reason,
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
+            "fee": fee
         })
 
     state["position"] = None
@@ -2110,8 +2158,9 @@ def write_dashboard_status(state: dict, analyses: dict):
         "highest_since_entry": state.get("highest_since_entry", 0),
         "highest_time": state.get("highest_time"),
         "total_pnl": state.get("total_pnl", 0),
+        "total_fees": sum(t.get("fee", 0.0) for t in state.get("trades", [])),
         "trade_count": len(state.get("trades", [])),
-        "last_trades": state.get("trades", [])[-5:],
+        "last_trades": state.get("trades", [])[-100:],
         "coins": sorted(coins, key=lambda x: x["rsi"]),
         "usd_balance": 0,  # Will be filled if available
     }
