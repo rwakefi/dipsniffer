@@ -493,7 +493,7 @@ STALE_EJECT_MIN_HOURS_SINCE_HIGH = 12
 STALE_EJECT_MIN_STRENGTH_GAP = 12.0
 STALE_EJECT_MIN_TARGET_STRENGTH = 55.0
 INITIAL_CAPITAL = 100.0
-TOTAL_DEPOSITS = 0.0
+TOTAL_DEPOSITS = 5.0
 
 
 # ─── CCXT API Wrapper ────────────────────────────────────────────
@@ -1641,7 +1641,7 @@ def load_strategy_config():
     STALE_EJECT_MIN_STRENGTH_GAP = _parse("STALE_EJECT_MIN_STRENGTH_GAP", float, 0.0)
     STALE_EJECT_MIN_TARGET_STRENGTH = _parse("STALE_EJECT_MIN_TARGET_STRENGTH", float, 0.0)
     INITIAL_CAPITAL = _parse("INITIAL_CAPITAL", float, 0.0)
-    TOTAL_DEPOSITS = _parse("TOTAL_DEPOSITS", float, 0.0)
+    TOTAL_DEPOSITS = _parse("TOTAL_DEPOSITS", float, 5.0)
     log(f"✅ Strategy parameters safely loaded from config.")
 
 # Run configuration loader 
@@ -2179,11 +2179,24 @@ def write_dashboard_status(state: dict, analyses: dict):
                 total_equity += bal * price
             elif sym == state.get("position"):
                 total_equity += bal * state.get("entry_price", 0)
-        
+
         # Recalculate ROI
         roi_pct = round(((total_equity - (INITIAL_CAPITAL + TOTAL_DEPOSITS)) / (INITIAL_CAPITAL + TOTAL_DEPOSITS)) * 100, 2) if (INITIAL_CAPITAL + TOTAL_DEPOSITS) > 0 else 0
     except Exception as e:
         log(f"⚠️ Error calculating equity stats: {e}")
+
+    # Calculate unrealized internal PNL for UI card
+    unrealized_pnl = 0
+    unrealized_pnl_pct = 0
+    position_value = 0
+
+    if state.get("position") and state["position"] in analyses:
+        price = analyses[state["position"]]["price"]
+        position_value = round(state.get("quantity", 0) * price, 2)
+        pnl = (price - state.get("entry_price", price)) * state.get("quantity", 0)
+        unrealized_pnl = round(pnl, 2)
+        if state.get("entry_price") and state["entry_price"] > 0:
+            unrealized_pnl_pct = round(((price / state["entry_price"]) - 1) * 100, 2)
 
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -2205,17 +2218,10 @@ def write_dashboard_status(state: dict, analyses: dict):
         "last_trades": state.get("trades", [])[-100:],
         "coins": sorted(coins, key=lambda x: x["rsi"]),
         "usd_balance": round(usd_bal, 2),
+        "position_value": position_value,
+        "unrealized_pnl": unrealized_pnl,
+        "unrealized_pnl_pct": unrealized_pnl_pct
     }
-
-    if state.get("position") and state["position"] in analyses:
-        price = analyses[state["position"]]["price"]
-        status["position_value"] = round(state.get("quantity", 0) * price, 2)
-        pnl = (price - state.get("entry_price", price)) * state.get("quantity", 0)
-        status["unrealized_pnl"] = round(pnl, 2)
-        if state.get("entry_price") and state["entry_price"] > 0:
-            status["unrealized_pnl_pct"] = round(((price / state["entry_price"]) - 1) * 100, 2)
-        else:
-            status["unrealized_pnl_pct"] = 0
 
     Path(DASHBOARD_DIR).mkdir(parents=True, exist_ok=True)
     with open(STATUS_FILE, "w") as f:
