@@ -491,6 +491,8 @@ STALE_EJECT_MAX_PNL_PCT = 1.5
 STALE_EJECT_MIN_HOURS_SINCE_HIGH = 12
 STALE_EJECT_MIN_STRENGTH_GAP = 12.0
 STALE_EJECT_MIN_TARGET_STRENGTH = 55.0
+INITIAL_CAPITAL = 100.0
+TOTAL_DEPOSITS = 0.0
 
 
 # ─── CCXT API Wrapper ────────────────────────────────────────────
@@ -1530,6 +1532,7 @@ def load_strategy_config():
     global BAND_WALK_MIN, DAILY_RSI_KNIFE, FUNDING_RATE_NEGATIVE_THRESHOLD, FUNDING_RATE_SCORE_BONUS
     global REL_STRENGTH_24H_MULT, REL_STRENGTH_72H_MULT, REL_STRENGTH_SCORE_CAP
     global STALE_EJECT_MIN_HOURS, STALE_EJECT_MAX_PNL_PCT, STALE_EJECT_MIN_HOURS_SINCE_HIGH, STALE_EJECT_MIN_STRENGTH_GAP, STALE_EJECT_MIN_TARGET_STRENGTH
+    global INITIAL_CAPITAL, TOTAL_DEPOSITS
 
     config_path = os.path.expanduser("~/.config/dipsniffer/strategy_config.json")
     
@@ -1563,7 +1566,9 @@ def load_strategy_config():
         "STALE_EJECT_MAX_PNL_PCT": STALE_EJECT_MAX_PNL_PCT,
         "STALE_EJECT_MIN_HOURS_SINCE_HIGH": STALE_EJECT_MIN_HOURS_SINCE_HIGH,
         "STALE_EJECT_MIN_STRENGTH_GAP": STALE_EJECT_MIN_STRENGTH_GAP,
-        "STALE_EJECT_MIN_TARGET_STRENGTH": STALE_EJECT_MIN_TARGET_STRENGTH
+        "STALE_EJECT_MIN_TARGET_STRENGTH": STALE_EJECT_MIN_TARGET_STRENGTH,
+        "INITIAL_CAPITAL": INITIAL_CAPITAL,
+        "TOTAL_DEPOSITS": TOTAL_DEPOSITS
     }
     
     if not os.path.exists(config_path):
@@ -1634,6 +1639,8 @@ def load_strategy_config():
     STALE_EJECT_MIN_HOURS_SINCE_HIGH = _parse("STALE_EJECT_MIN_HOURS_SINCE_HIGH", float, 0.0)
     STALE_EJECT_MIN_STRENGTH_GAP = _parse("STALE_EJECT_MIN_STRENGTH_GAP", float, 0.0)
     STALE_EJECT_MIN_TARGET_STRENGTH = _parse("STALE_EJECT_MIN_TARGET_STRENGTH", float, 0.0)
+    INITIAL_CAPITAL = _parse("INITIAL_CAPITAL", float, 0.0)
+    TOTAL_DEPOSITS = _parse("TOTAL_DEPOSITS", float, 0.0)
     log(f"✅ Strategy parameters safely loaded from config.")
 
 # Run configuration loader 
@@ -2147,6 +2154,30 @@ def write_dashboard_status(state: dict, analyses: dict):
                 "rel_strength_score": a.get("rel_strength_score", 0),
             })
 
+    # Calculate Total Equity and USD balance
+    usd_bal = 0
+    total_equity = 0
+    roi_pct = 0
+    try:
+        current_balances = get_balance() or {}
+        usd_bal = current_balances.get("USD", 0)
+        total_equity = usd_bal
+        
+        # Add value of all crypto assets based on current prices
+        for sym, bal in current_balances.items():
+            if sym == "USD": continue
+            # Find the analysis price for this asset
+            price = analyses.get(sym, {}).get("price")
+            if price:
+                total_equity += bal * price
+            elif sym == state.get("position"):
+                total_equity += bal * state.get("entry_price", 0)
+        
+        # Recalculate ROI
+        roi_pct = round(((total_equity - (INITIAL_CAPITAL + TOTAL_DEPOSITS)) / (INITIAL_CAPITAL + TOTAL_DEPOSITS)) * 100, 2) if (INITIAL_CAPITAL + TOTAL_DEPOSITS) > 0 else 0
+    except Exception as e:
+        log(f"⚠️ Error calculating equity stats: {e}")
+
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "bot_running": True,
@@ -2157,25 +2188,26 @@ def write_dashboard_status(state: dict, analyses: dict):
         "stop_loss": state.get("stop_loss", 0),
         "highest_since_entry": state.get("highest_since_entry", 0),
         "highest_time": state.get("highest_time"),
-        "total_pnl": state.get("total_pnl", 0),
+        "total_pnl": round(total_equity - (INITIAL_CAPITAL + TOTAL_DEPOSITS), 2),
+        "total_equity": round(total_equity, 2),
         "total_fees": sum(t.get("fee", 0.0) for t in state.get("trades", [])),
+        "last_fee": state.get("trades", [])[-1].get("fee", 0.0) if state.get("trades") else 0.0,
+        "roi_pct": roi_pct,
         "trade_count": len(state.get("trades", [])),
         "last_trades": state.get("trades", [])[-100:],
         "coins": sorted(coins, key=lambda x: x["rsi"]),
-        "usd_balance": 0,  # Will be filled if available
+        "usd_balance": round(usd_bal, 2),
     }
 
-    # Try to get USD balance
-    try:
-        balances = get_balance() or {}
-        status["usd_balance"] = round(balances.get("USD", 0), 2)
-        if state.get("position") and state["position"] in analyses:
-            price = analyses[state["position"]]["price"]
-            status["position_value"] = round(state.get("quantity", 0) * price, 2)
-            pnl = (price - state.get("entry_price", price)) * state.get("quantity", 0)
-            status["unrealized_pnl"] = round(pnl, 2)
-    except Exception:
-        pass
+    if state.get("position") and state["position"] in analyses:
+        price = analyses[state["position"]]["price"]
+        status["position_value"] = round(state.get("quantity", 0) * price, 2)
+        pnl = (price - state.get("entry_price", price)) * state.get("quantity", 0)
+        status["unrealized_pnl"] = round(pnl, 2)
+        if state.get("entry_price") and state["entry_price"] > 0:
+            status["unrealized_pnl_pct"] = round(((price / state["entry_price"]) - 1) * 100, 2)
+        else:
+            status["unrealized_pnl_pct"] = 0
 
     Path(DASHBOARD_DIR).mkdir(parents=True, exist_ok=True)
     with open(STATUS_FILE, "w") as f:

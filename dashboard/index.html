@@ -128,13 +128,15 @@
     background: linear-gradient(135deg, var(--swamp-card), var(--swamp-highlight));
     border: 1px solid var(--swamp-border);
     border-radius: 16px;
-    padding: 24px;
+    padding: 16px 24px;
     margin-bottom: 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow-x: auto;
+    gap: 20px;
   }
 
   .position-card.holding {
@@ -152,13 +154,47 @@
   }
 
   .position-value {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 700;
     font-family: var(--mono);
   }
 
   .position-value.cash { color: var(--croc-green); }
   .position-value.coin { color: var(--warm-gold); }
+
+  /* Sort & Filter Controls */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 0 4px;
+  }
+
+  .sort-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--swamp-border);
+    color: var(--text-muted);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .sort-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+  }
+
+  .sort-btn.active {
+    background: var(--croc-green);
+    color: var(--swamp-dark);
+    border-color: var(--croc-green);
+    font-weight: bold;
+    box-shadow: 0 0 15px rgba(46, 204, 113, 0.2);
+  }
 
   .stat-group {
     text-align: center;
@@ -176,7 +212,7 @@
   /* Coin Grid */
   .coin-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
     margin-bottom: 24px;
   }
@@ -540,7 +576,85 @@
     padding: 4px 0;
   }
 
-  .legend-item .signal-badge { flex-shrink: 0; }
+  .chart-icon {
+    cursor: pointer;
+    margin-left: 6px;
+    font-size: 0.9rem;
+    color: var(--croc-glow);
+    user-select: none;
+  }
+
+
+  /* Chart Modal Overlay */
+  .chart-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(10, 26, 15, 0.95);
+    z-index: 9999;
+    display: none;
+    flex-direction: column;
+    padding: 24px;
+    backdrop-filter: blur(8px);
+  }
+
+  .chart-modal {
+    width: 100%;
+    height: 100%;
+    max-width: 1300px;
+    margin: 0 auto;
+    background: var(--swamp-dark);
+    border: 1px solid var(--swamp-border);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 50px 100px rgba(0,0,0,0.5);
+  }
+
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--swamp-border);
+    background: rgba(255,255,255,0.02);
+  }
+
+  .chart-title {
+    font-family: var(--mono);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--croc-glow);
+  }
+
+  .close-chart {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid var(--danger-red);
+    color: var(--danger-red);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    transition: all 0.2s;
+  }
+
+  .close-chart:hover {
+    background: var(--danger-red);
+    color: white;
+  }
+
+  #chartContainer { flex: 1; }
+
+  .coin-card .coin-symbol {
+    cursor: pointer;
+    border-bottom: 1px dashed rgba(255,255,255,0.2);
+  }
+  .coin-card .coin-symbol:hover {
+    color: var(--croc-glow);
+    border-color: var(--croc-glow);
+  }
 </style>
 </head>
 <body>
@@ -573,21 +687,51 @@
       <div class="position-value cash" id="positionValue">Loading...</div>
     </div>
     <div class="stat-group">
-      <div class="position-label">Total P&L</div>
-      <div class="stat-number" id="totalPnl">--</div>
+      <div class="position-label">Total Value</div>
+      <div class="stat-number" id="totalEquity">--</div>
     </div>
     <div class="stat-group">
-      <div class="position-label">Trades</div>
-      <div class="stat-number" id="tradeCount">--</div>
+      <div class="position-label">Total P&L</div>
+      <div class="stat-number" id="totalPnl">--</div>
     </div>
     <div class="stat-group">
       <div class="position-label">Total Fees</div>
       <div class="stat-number negative" id="totalFees">--</div>
     </div>
     <div class="stat-group">
+      <div class="position-label">Last Fee</div>
+      <div class="stat-number negative" id="lastFee">--</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">Trades</div>
+      <div class="stat-number" id="tradeCount">--</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">ROI %</div>
+      <div class="stat-number" id="roiPct">--</div>
+    </div>
+    <div class="stat-group">
       <div class="position-label">Stop-Loss</div>
       <div class="stat-number" id="stopLoss">--</div>
     </div>
+  </div>
+
+  <div class="controls" id="sortControls">
+    <span class="position-label" style="margin-bottom: 0; margin-right: 8px;">Sort Market By:</span>
+    <button class="sort-btn active" id="sort-rsi" onclick="setSort('rsi')">RSI (High)</button>
+    <button class="sort-btn" id="sort-bb" onclick="setSort('bb')">BB (High)</button>
+    <button class="sort-btn" id="sort-strength" onclick="setSort('strength')">Strength</button>
+    <button class="sort-btn" id="sort-change_24h" onclick="setSort('change_24h')">24h Change</button>
+    <button class="sort-btn" id="sort-vol_ratio" onclick="setSort('vol_ratio')">Volume Ratio</button>
+  </div>
+
+  <div class="controls" id="filterControls">
+    <span class="position-label" style="margin-bottom: 0; margin-right: 8px;">Filter By State:</span>
+    <button class="sort-btn active" id="filter-all" onclick="setFilter('all')">All</button>
+    <button class="sort-btn" id="filter-sqz" onclick="setFilter('sqz')">🟠SQZ</button>
+    <button class="sort-btn" id="filter-div" onclick="setFilter('div')">⬆DIV</button>
+    <button class="sort-btn" id="filter-buy" onclick="setFilter('buy')">🎯BUY</button>
+    <button class="sort-btn" id="filter-lurking" onclick="setFilter('lurking')">Lurking</button>
   </div>
 
   <div class="coin-grid" id="coinGrid"></div>
@@ -615,18 +759,98 @@
   </div>
 
   <div class="footer">
-    <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s
+    <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s · Click symbol for chart
+  </div>
+</div>
+
+<div class="chart-overlay" id="chartOverlay">
+  <div class="chart-modal">
+    <div class="chart-header">
+      <div class="chart-title" id="chartLabel">📈 Loading Chart...</div>
+      <button class="close-chart" onclick="closeChart()">✕ CLOSE</button>
+    </div>
+    <div id="chartContainer"></div>
   </div>
 </div>
 
 <script>
   const STATUS_URL = 'status.json';
+
+  // ─── State ────────────────────────────────────────────────
   let lastData = null;
+  let currentSort = 'rsi';
+  let currentFilter = 'all';
   let showFullLog = false;
+
+  // ─── Sort & Filter Controls ───────────────────────────────
+  function setSort(metric) {
+    currentSort = metric;
+    document.querySelectorAll('#sortControls .sort-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.id === `sort-${metric}`);
+    });
+    if (lastData) renderMarket(lastData);
+  }
+
+  function setFilter(state) {
+    currentFilter = state;
+    document.querySelectorAll('#filterControls .sort-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.id === `filter-${state}`);
+    });
+    if (lastData) renderMarket(lastData);
+  }
 
   function toggleLog() {
     showFullLog = !showFullLog;
     if (lastData) renderTradeLog(lastData.last_trades);
+  }
+
+  function openChart(symbol) {
+    const overlay = document.getElementById('chartOverlay');
+    const label = document.getElementById('chartLabel');
+    const container = document.getElementById('chartContainer');
+    
+    // TradingView format for Kraken matches typically. e.g. BTCUSD
+    // Some are slightly dynamic. 
+    let tvSymbol = symbol;
+    if (tvSymbol === 'XBT') tvSymbol = 'BTC'; 
+    const fullSymbol = `KRAKEN:${tvSymbol}USD`;
+    
+    label.textContent = `📈 ${symbol} / USD · Live Performance`;
+    overlay.style.display = 'flex';
+    
+    // Clear and build widget
+    container.innerHTML = '';
+    const widgetDiv = document.createElement('div');
+    widgetDiv.style.height = '100%';
+    widgetDiv.style.width = '100%';
+    container.appendChild(widgetDiv);
+    
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/tv.js';
+    script.async = true;
+    script.onload = () => {
+      new TradingView.widget({
+        "autosize": true,
+        "symbol": fullSymbol,
+        "interval": "60",
+        "timezone": "Etc/UTC",
+        "theme": "dark",
+        "style": "1",
+        "locale": "en",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "hide_side_toolbar": false,
+        "allow_symbol_change": true,
+        "container_id": widgetDiv.id = 'tv_' + Date.now(),
+        "studies": ["RSI@tv-basicstudies", "BB@tv-basicstudies"]
+      });
+    };
+    document.head.appendChild(script);
+  }
+
+  function closeChart() {
+    document.getElementById('chartOverlay').style.display = 'none';
+    document.getElementById('chartContainer').innerHTML = '';
   }
 
   function formatPrice(price) {
@@ -652,8 +876,8 @@
     return 'neutral';
   }
 
-  function renderCoinCard(coin, heldSymbol) {
-    const isHeld = coin.symbol === heldSymbol;
+  function renderCoinCard(coin, data) {
+    const isHeld = coin.symbol === data.position;
     let cardClass = 'coin-card';
     let badge = '';
 
@@ -685,15 +909,30 @@
     const volText = coin.vol_ratio > 0 ? `<span style="color: ${coin.vol_ratio >= 1.5 ? 'var(--croc-glow)' : 'var(--text-muted)'}; font-family: var(--mono); font-size: 0.65rem">${coin.vol_ratio}×vol</span>` : '';
     const scoreBadge = `<span class="signal-badge neutral" style="background: rgba(255,255,255,0.05);" title="Composite Strength Score">★ ${coin.strength ? coin.strength.toFixed(1) : '0.0'}</span>`;
 
+    let pnlInfo = '';
+    if (isHeld && data.entry_price) {
+      const pnl = data.unrealized_pnl || 0;
+      const pnlPct = data.unrealized_pnl_pct || 0;
+      const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+      const arrow = pnl >= 0 ? '↑' : '↓';
+      pnlInfo = `
+        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05)">
+          <span>Bought: <span style="color: var(--text-primary)">${formatPrice(data.entry_price)}</span></span>
+          <span class="stat-number ${pnlClass}" style="font-size: 0.75rem">${arrow} $${Math.abs(pnl).toFixed(2)} (${pnlPct}%)</span>
+        </div>`;
+    }
+
     return `
       <div class="${cardClass}">
         <div class="coin-header">
-          <div>
-            <span class="coin-symbol">${coin.symbol}</span>
+          <div onclick="openChart('${coin.symbol}')">
+            <span class="coin-symbol" title="View Chart">${coin.symbol}</span>
             <span class="coin-price">${formatPrice(coin.price)}</span>
+            <span class="chart-icon" title="Open Chart" onclick="openChart('${coin.symbol}'); event.stopPropagation();">📈</span>
           </div>
           <div class="coin-badges">${badge}${divBadge}${sqzBadge}${walkBadge}${scoreBadge}</div>
         </div>
+        ${pnlInfo}
         <div class="rsi-container">
           <div class="rsi-label">
             <span>RSI</span>
@@ -765,6 +1004,51 @@
     container.innerHTML = `<h3>🐊 Recent Kills</h3>${header}${entries}${toggleBtn}`;
   }
 
+  // ─── Market Grid: Filter, Sort, Column-Major Layout ────────
+  function renderMarket(data) {
+    const grid = document.getElementById('coinGrid');
+
+    // Filter
+    const filtered = data.coins.filter(c => {
+      if (currentFilter === 'all') return true;
+      if (currentFilter === 'sqz') return c.bb_squeezing || c.bb_squeeze_breakout;
+      if (currentFilter === 'div') return c.rsi_divergence;
+      if (currentFilter === 'buy') return c.buy_signal || c.squeeze_buy;
+      if (currentFilter === 'lurking') return !(c.buy_signal || c.squeeze_buy || c.sell_signal || c.symbol === data.position);
+      return true;
+    });
+
+    // Sort (held coin pinned to top)
+    const sorted = [...filtered].sort((a, b) => {
+      const aHeld = a.symbol === data.position ? 1 : 0;
+      const bHeld = b.symbol === data.position ? 1 : 0;
+      if (aHeld !== bHeld) return bHeld - aHeld;
+
+      if (currentSort === 'rsi') return (b.rsi || 50) - (a.rsi || 50);
+      if (currentSort === 'bb') return (b.bb_position || 0) - (a.bb_position || 0);
+      if (currentSort === 'strength') return (b.strength || 0) - (a.strength || 0);
+      if (currentSort === 'change_24h') return (b.change_24h || 0) - (a.change_24h || 0);
+      if (currentSort === 'vol_ratio') return (b.vol_ratio || 0) - (a.vol_ratio || 0);
+      return 0;
+    });
+
+    // Column-major reorder (top-to-bottom within each column)
+    const numCols = 3;
+    const numRows = Math.ceil(sorted.length / numCols);
+    const columnMajor = [];
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const idx = c * numRows + r;
+        columnMajor.push(idx < sorted.length ? sorted[idx] : null);
+      }
+    }
+
+    grid.innerHTML = columnMajor.map(c =>
+      c ? renderCoinCard(c, data) : '<div style="visibility:hidden"></div>'
+    ).join('');
+  }
+
+  // ─── Main Refresh Loop ────────────────────────────────────
   async function refresh() {
     try {
       const res = await fetch(STATUS_URL + '?t=' + Date.now());
@@ -772,7 +1056,7 @@
       const data = await res.json();
       lastData = data;
 
-      // Check staleness (>10 min)
+      // Staleness check (>10 min)
       const age = (Date.now() - new Date(data.timestamp).getTime()) / 1000;
       const stale = age > 600;
       document.getElementById('staleWarning').style.display = stale ? 'block' : 'none';
@@ -781,7 +1065,7 @@
       document.getElementById('lastUpdate').textContent = timeAgo(data.timestamp);
       document.getElementById('coinCount').textContent = data.coins.length;
 
-      // Position
+      // Position card
       const card = document.getElementById('positionCard');
       const posValue = document.getElementById('positionValue');
       if (data.position) {
@@ -789,9 +1073,8 @@
         const val = data.position_value ? ` ($${data.position_value.toFixed(2)})` : '';
         posValue.textContent = `🐊 ${data.quantity} ${data.position}${val}`;
         posValue.className = 'position-value coin';
-        const stopEl = document.getElementById('stopLoss');
         const trailPct = data.entry_price > 0 ? ((1 - data.stop_loss / data.highest_since_entry) * 100).toFixed(1) : '?';
-        stopEl.textContent = formatPrice(data.stop_loss) + ` (${trailPct}%)`;
+        document.getElementById('stopLoss').textContent = formatPrice(data.stop_loss) + ` (${trailPct}%)`;
       } else {
         card.classList.remove('holding');
         posValue.textContent = `💵 $${data.usd_balance.toFixed(2)} Cash`;
@@ -799,26 +1082,26 @@
         document.getElementById('stopLoss').textContent = '--';
       }
 
-      // P&L
+      // Stats bar
       const pnlEl = document.getElementById('totalPnl');
       pnlEl.textContent = (data.total_pnl >= 0 ? '+' : '') + '$' + data.total_pnl.toFixed(2);
       pnlEl.className = 'stat-number ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
 
       document.getElementById('tradeCount').textContent = data.trade_count;
 
-      // Fees
-      const feesEl = document.getElementById('totalFees');
-      feesEl.textContent = '$' + (data.total_fees || 0).toFixed(2);
-      const grid = document.getElementById('coinGrid');
-      const sorted = [...data.coins].sort((a, b) => {
-        const aHeld = a.symbol === data.position ? 1 : 0;
-        const bHeld = b.symbol === data.position ? 1 : 0;
-        if (aHeld !== bHeld) return aHeld - bHeld;
-        return (b.strength || 0) - (a.strength || 0);
-      });
-      grid.innerHTML = sorted.map(c => renderCoinCard(c, data.position)).join('');
+      const equityEl = document.getElementById('totalEquity');
+      equityEl.textContent = '$' + (data.total_equity || 0).toFixed(2);
+      equityEl.className = 'stat-number ' + ((data.total_equity >= 100) ? 'positive' : 'negative');
 
-      // Trades
+      const roiEl = document.getElementById('roiPct');
+      roiEl.textContent = (data.roi_pct || 0).toFixed(1) + '%';
+      roiEl.className = 'stat-number ' + ((data.roi_pct >= 0) ? 'positive' : 'negative');
+
+      document.getElementById('lastFee').textContent = '$' + (data.last_fee || 0).toFixed(4);
+      document.getElementById('totalFees').textContent = '$' + (data.total_fees || 0).toFixed(2);
+
+      // Render coin grid and trade log
+      renderMarket(data);
       renderTradeLog(data.last_trades);
 
     } catch (e) {
