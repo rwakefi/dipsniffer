@@ -50,6 +50,7 @@ STATE_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-state.json")
 LOG_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot.log")
 DASHBOARD_DIR = os.path.expanduser("~/.config/dipsniffer/dashboard")
 STATUS_FILE = os.path.join(DASHBOARD_DIR, "status.json")
+PAUSE_FILE = os.path.expanduser("~/.config/dipsniffer/pause_trading.flag")
 
 class SQLiteLogger:
     def __init__(self, db_path="~/.config/dipsniffer/market_history.db"):
@@ -1794,6 +1795,11 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
     log("═" * 50)
     log("Swing Bot cycle starting")
 
+    is_paused = os.path.exists(PAUSE_FILE)
+    if is_paused:
+        log("⏸ Bot is PAUSED by user. Running in status-only mode (no trades will be executed).")
+        status_only = True
+
     telemetry = {
         "cycle": {
             "cycle_id": f"cyc_{int(time.time()*1000)}",
@@ -1801,6 +1807,7 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
             "mode": "status" if status_only else ("dry_run" if dry_run else "live"),
             "fear_greed_index": get_fear_greed(),
             "btc_crash_guard_active": False,
+            "is_paused": is_paused,
         },
         "all_analyses": {},
         "decision_events": [],
@@ -2181,6 +2188,7 @@ def write_dashboard_status(state: dict, analyses: dict):
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "bot_running": True,
+        "is_paused": os.path.exists(PAUSE_FILE),
         "position": state.get("position"),
         "entry_price": state.get("entry_price", 0),
         "entry_time": state.get("entry_time"),

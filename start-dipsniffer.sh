@@ -15,7 +15,7 @@ python3 "$DIR/kraken-swing-bot.py" --loop &
 BOT_PID=$!
 
 echo "Starting DipSniffer Dashboard Server on port 8077..."
-python3 -m http.server 8077 --directory "$HOME/.config/dipsniffer/dashboard" &
+python3 "$DIR/dashboard_server.py" 8077 &
 UI_PID=$!
 
 echo "=========================================="
