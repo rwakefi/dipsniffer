@@ -112,31 +112,47 @@
     animation: pulse 2s ease-in-out infinite;
   }
 
-  .pulse.danger { background: var(--danger-red); animation-name: pulse-red; }
+  .pulse.danger {
+    background: var(--danger-red);
+    box-shadow: 0 0 10px var(--danger-red);
+    animation: pulse-danger 1s infinite;
+  }
+
+  .pulse.paused {
+    background: var(--warm-gold);
+    box-shadow: 0 0 10px var(--warm-gold);
+    animation: pulse-paused 2s infinite;
+  }
 
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.4); }
-    50% { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
   }
-  @keyframes pulse-red {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
-    50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+
+  @keyframes pulse-danger {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+  }
+
+  @keyframes pulse-paused {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
   }
 
   /* Position Card */
   .position-card {
-    background: linear-gradient(135deg, var(--swamp-card), var(--swamp-highlight));
-    border: 1px solid var(--swamp-border);
-    border-radius: 16px;
-    padding: 16px 24px;
-    margin-bottom: 24px;
+    background: rgba(46, 204, 113, 0.03);
+    border: 1px solid var(--croc-green);
+    border-radius: 12px;
+    padding: 12px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: nowrap;
-    white-space: nowrap;
-    overflow-x: auto;
-    gap: 20px;
+    margin-bottom: 24px;
+    gap: 12px;
   }
 
   .position-card.holding {
@@ -145,16 +161,15 @@
   }
 
   .position-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 2px;
-    font-family: var(--mono);
+    font-size: 0.55rem;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
     margin-bottom: 4px;
   }
 
   .position-value {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     font-family: var(--mono);
   }
@@ -201,7 +216,7 @@
   }
 
   .stat-number {
-    font-size: 1.4rem;
+    font-size: 1.15rem;
     font-weight: 700;
     font-family: var(--mono);
   }
@@ -280,6 +295,25 @@
     font-family: var(--mono);
     font-size: 0.95rem;
     color: var(--text-secondary);
+  }
+
+  .legend-item .signal-badge { flex-shrink: 0; }
+
+  /* Pause button styling */
+  .pause-btn {
+    background: var(--croc-green);
+    color: var(--swamp-dark);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    cursor: pointer;
+    margin-left: 12px;
+    transition: background 0.2s;
+  }
+  .pause-btn:hover {
+    background: var(--croc-glow);
   }
 
   .signal-badge {
@@ -668,6 +702,7 @@
         <div class="pulse" id="botPulse"></div>
         <span id="botStatus">Loading...</span>
       </div>
+      <button class="pause-btn" onclick="togglePause()">⏸ Pause</button>
       <div class="status-pill">
         🕐 <span id="lastUpdate">--</span>
       </div>
@@ -689,6 +724,10 @@
     <div class="stat-group">
       <div class="position-label">Total Value</div>
       <div class="stat-number" id="totalEquity">--</div>
+    </div>
+    <div class="stat-group">
+      <div class="position-label">Cash</div>
+      <div class="stat-number" id="cashBalance">--</div>
     </div>
     <div class="stat-group">
       <div class="position-label">Total P&L</div>
@@ -781,6 +820,34 @@
   let currentSort = 'rsi';
   let currentFilter = 'all';
   let showFullLog = false;
+  let isPaused = false;
+  let refreshInterval = null;
+
+  // ─── Pause Control ───────────────────────────────────────
+  // ─── Pause Control ───────────────────────────────────────
+  async function togglePause() {
+    isPaused = !isPaused;
+    const btn = document.querySelector('.pause-btn');
+    btn.disabled = true; // prevent spam
+    try {
+      if (isPaused) {
+        await fetch('/api/pause', { method: 'POST' });
+        btn.textContent = '▶︎ Resume';
+      } else {
+        await fetch('/api/resume', { method: 'POST' });
+        btn.textContent = '⏸ Pause';
+      }
+      refresh(); // immediately fetch new status
+    } catch (e) {
+      console.error("Failed to toggle pause", e);
+      isPaused = !isPaused; // revert
+    }
+    btn.disabled = false;
+  }
+
+  function startRefresh() {
+    refreshInterval = setInterval(refresh, 10000);
+  }
 
   // ─── Sort & Filter Controls ───────────────────────────────
   function setSort(metric) {
@@ -915,10 +982,27 @@
       const pnlPct = data.unrealized_pnl_pct || 0;
       const pnlClass = pnl >= 0 ? 'positive' : 'negative';
       const arrow = pnl >= 0 ? '↑' : '↓';
+      
+      const trailPct = data.highest_since_entry > 0 
+        ? ((1 - data.stop_loss / data.highest_since_entry) * 100).toFixed(1) 
+        : '?';
+
       pnlInfo = `
         <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05)">
-          <span>Bought: <span style="color: var(--text-primary)">${formatPrice(data.entry_price)}</span></span>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span>Bought: <span style="color: var(--text-primary)">${formatPrice(data.entry_price)}</span></span>
+            <span>Stop-Loss: <span style="color: var(--danger-red); font-family: var(--mono)">${formatPrice(data.stop_loss)}</span> <span style="font-size: 0.6rem">(${trailPct}%)</span></span>
+          </div>
           <span class="stat-number ${pnlClass}" style="font-size: 0.75rem">${arrow} $${Math.abs(pnl).toFixed(2)} (${pnlPct}%)</span>
+        </div>`;
+    } else if (coin.change_24h !== undefined && coin.change_24h !== null) {
+      const chg = coin.change_24h;
+      const hClass = chg >= 0 ? 'positive' : 'negative';
+      const arrow = chg >= 0 ? '↑' : '↓';
+      pnlInfo = `
+        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05)">
+          <span>24h Change</span>
+          <span class="stat-number ${hClass}" style="font-size: 0.75rem">${arrow} ${Math.abs(chg).toFixed(2)}%</span>
         </div>`;
     }
 
@@ -1049,6 +1133,9 @@
   }
 
   // ─── Main Refresh Loop ────────────────────────────────────
+  // Start the auto‑refresh loop on load
+  startRefresh();
+
   async function refresh() {
     try {
       const res = await fetch(STATUS_URL + '?t=' + Date.now());
@@ -1060,8 +1147,25 @@
       const age = (Date.now() - new Date(data.timestamp).getTime()) / 1000;
       const stale = age > 600;
       document.getElementById('staleWarning').style.display = stale ? 'block' : 'none';
-      document.getElementById('botPulse').className = stale ? 'pulse danger' : 'pulse';
-      document.getElementById('botStatus').textContent = stale ? 'Possibly offline' : 'Hunting';
+      
+      // Update UI state based on bot status
+      isPaused = data.is_paused || false;
+      const btn = document.querySelector('.pause-btn');
+      btn.textContent = isPaused ? '▶︎ Resume' : '⏸ Pause';
+
+      let statusMsg = 'Hunting';
+      let pulseClass = 'pulse';
+      if (stale) {
+        statusMsg = 'Possibly offline';
+        pulseClass = 'pulse danger';
+      } else if (isPaused) {
+        statusMsg = 'Paused';
+        pulseClass = 'pulse paused';
+      }
+      
+      document.getElementById('botPulse').className = pulseClass;
+      document.getElementById('botStatus').textContent = statusMsg;
+      
       document.getElementById('lastUpdate').textContent = timeAgo(data.timestamp);
       document.getElementById('coinCount').textContent = data.coins.length;
 
@@ -1088,6 +1192,7 @@
       pnlEl.className = 'stat-number ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
 
       document.getElementById('tradeCount').textContent = data.trade_count;
+      document.getElementById('cashBalance').textContent = '$' + (data.usd_balance || 0).toFixed(2);
 
       const equityEl = document.getElementById('totalEquity');
       equityEl.textContent = '$' + (data.total_equity || 0).toFixed(2);
