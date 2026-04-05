@@ -446,7 +446,7 @@ STOP_LOSS_FALLBACK = 0.08  # Fallback fixed % if ATR unavailable
 BB_MIN_WIDTH_PCT = 3.0     # Ignore upper-BB exit if band width < 3% (squeeze filter)
 VOLUME_SPIKE_MULT = 1.5    # Buy requires volume >= this × 20-candle average
 VOLUME_LOOKBACK = 20       # Candles to average for volume baseline
-LOOP_INTERVAL_SEC = 180    # 3 minutes
+LOOP_INTERVAL_SEC = 60    # 1 minute
 OHLC_INTERVAL = 60         # 1-hour candles
 MIN_TRADE_USD = 5.0        # Kraken minimum order ~$5
 
@@ -696,10 +696,11 @@ def get_fear_greed() -> int | None:
         return None
 
 
-def gemini_yolo_pick(analyses: dict, telemetry: dict = None) -> tuple[str | None, bool]:
+def gemini_yolo_pick(analyses: dict, excluded_symbols: set = None, telemetry: dict = None) -> tuple[str | None, bool]:
     """Ask Gemini Flash to vet the top mechanically scored swing trade.
     Returns (symbol, consulted) — symbol is from PAIRS or None,
     consulted is True if Gemini was actually asked (for cooldown tracking)."""
+    excluded = excluded_symbols or set()
     fng = telemetry["cycle"]["fear_greed_index"] if telemetry else get_fear_greed()
     if fng is None:
         return None, False
@@ -709,7 +710,7 @@ def gemini_yolo_pick(analyses: dict, telemetry: dict = None) -> tuple[str | None
 
     # Pre-screen: only send coins that look bounce-able (not overbought)
     candidates = {sym: a for sym, a in analyses.items()
-                  if a['rsi'] < 50 and a['bb_position'] < 0.60}
+                  if a['rsi'] < 50 and a['bb_position'] < 0.60 and sym not in excluded}
     if len(candidates) < 3:
         log(f"  🐊 YOLO hunt: only {len(candidates)} coins below RSI 50 / BB 0.60 — skipping")
         return None, False
@@ -1542,6 +1543,8 @@ def load_state() -> dict:
         "trades": [],           # Trade history
         "total_pnl": 0,         # Running P&L
         "last_sell_time": None, # ISO timestamp — for YOLO idle tracking
+        "last_sell_symbol": None, # Anti-churn cooldown
+        "last_sell_price": 0,     # Anti-churn bypass
         "last_yolo_attempt": None,  # ISO timestamp — YOLO cooldown
     }
 
@@ -1837,6 +1840,8 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
     state["highest_time"] = None
     state.pop("entry_reason", None)
     state["last_sell_time"] = datetime.now(timezone.utc).isoformat()
+    state["last_sell_symbol"] = symbol
+    state["last_sell_price"] = current_price
 
     return state
 
@@ -2048,8 +2053,25 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
         total_available = usd + crypto_value
         log(f"  Available: ${usd:.2f} USD + ${crypto_value:.2f} in crypto = ${total_available:.2f} total")
 
+        # Anti-churn cooldown (2.0 hours or 2% drop)
+        excluded_symbols = set()
+        last_sell_sym = state.get("last_sell_symbol")
+        last_sell_time = state.get("last_sell_time")
+        last_sell_price = state.get("last_sell_price", 0)
+        
+        if last_sell_sym and last_sell_time and last_sell_sym in analyses:
+            hrs_since = hours_since(last_sell_time)
+            if hrs_since is not None and hrs_since < 2.0:
+                current_price = analyses[last_sell_sym]["price"]
+                if last_sell_price > 0 and current_price <= last_sell_price * 0.98:
+                    log(f"  📉 Anti-churn bypass: {last_sell_sym} dropped >2% from sell price (${last_sell_price:.2f} -> ${current_price:.2f})")
+                else:
+                    log(f"  ⏳ {last_sell_sym} is on anti-churn cooldown for {2.0 - hrs_since:.2f} more hours")
+                    excluded_symbols.add(last_sell_sym)
+
         best = select_best_gemini_approved_candidate(
             analyses,
+            excluded_symbols=excluded_symbols,
             skip_gemini=(dry_run or status_only),
             telemetry=telemetry
         )
@@ -2130,7 +2152,7 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
 
                 if idle_ok and cooldown_ok:
                     log(f"  🐊 YOLO HUNT: No signals + idle long enough — consulting Gemini...")
-                    pick, consulted = gemini_yolo_pick(analyses, telemetry=telemetry)
+                    pick, consulted = gemini_yolo_pick(analyses, excluded_symbols=excluded_symbols, telemetry=telemetry)
                     # Only burn cooldown if Gemini was actually consulted
                     # (pre-screen rejection and API failures don't count)
                     if consulted:
@@ -2233,15 +2255,37 @@ def write_dashboard_status(state: dict, analyses: dict):
         "usd_balance": 0,  # Will be filled if available
     }
 
-    # Try to get USD balance
+    # Try to get USD balance and compute extended metrics
     try:
         balances = get_balance() or {}
-        status["usd_balance"] = round(balances.get("USD", 0), 2)
+        usd_balance = balances.get("USD", 0)
+        status["usd_balance"] = round(usd_balance, 2)
+        
+        total_equity = usd_balance
         if state.get("position") and state["position"] in analyses:
             price = analyses[state["position"]]["price"]
-            status["position_value"] = round(state.get("quantity", 0) * price, 2)
-            pnl = (price - state.get("entry_price", price)) * state.get("quantity", 0)
-            status["unrealized_pnl"] = round(pnl, 2)
+            qty = state.get("quantity", 0)
+            entry = state.get("entry_price", price)
+            position_value = qty * price
+            
+            status["position_value"] = round(position_value, 2)
+            status["unrealized_pnl"] = round(position_value - (qty * entry), 2)
+            status["unrealized_pnl_pct"] = round(((price - entry) / entry) * 100, 2) if entry > 0 else 0.0
+            
+            total_equity += position_value
+            
+        status["total_equity"] = round(total_equity, 2)
+        
+        # Approximate ROI based on current equity vs starting equity (equity - pnl)
+        total_pnl = state.get("total_pnl", 0)
+        starting_equity = total_equity - total_pnl
+        status["roi_pct"] = round((total_pnl / starting_equity) * 100, 2) if starting_equity > 0 else 0.0
+
+        # Optional Fee Tracking (if future orders inject fee data)
+        trades = state.get("trades", [])
+        status["total_fees"] = round(sum(t.get("fee", 0) for t in trades), 2)
+        status["last_fee"] = round(trades[-1].get("fee", 0), 4) if trades else 0.0
+        
     except Exception:
         pass
 
