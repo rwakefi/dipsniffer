@@ -780,6 +780,7 @@
       <div class="legend-item"><span class="signal-badge neutral" style="background: rgba(255,255,255,0.05);">★ SCORE</span> Composite strength rank used by YOLO Hunt (Higher = better technical setup)</div>
       <div class="legend-item"><span class="signal-badge buy">🎯 BUY</span> Classic dip: RSI under 33 + price hit bottom band + strong volume</div>
       <div class="legend-item"><span class="signal-badge buy">💥 SQUEEZE BUY</span> Explosive breakout with volume (allowed to buy even if RSI is high)</div>
+      <div class="legend-item"><span class="signal-badge buy">🚀 MOMENTUM BUY</span> Entering during an accelerating trend (strong volume & rising RSI)</div>
       <div class="legend-item"><span class="signal-badge sell">OVERBOUGHT</span> Time to exit: RSI > 60 or price jumped the top band</div>
       <div class="legend-item"><span class="signal-badge held">🐊 HOLDING</span> The coin we are currently swinging</div>
       <div class="legend-item"><span class="signal-badge neutral">LURKING</span> Just watching, no action needed right now</div>
@@ -930,11 +931,11 @@
     if (isHeld) {
       cardClass += ' held';
       badge = '<span class="signal-badge held">🐊 HOLDING</span>';
-    } else if (coin.buy_signal || coin.squeeze_buy) {
+    } else if (coin.buy_signal || coin.squeeze_buy || coin.momentum_buy) {
       cardClass += ' buy-signal';
-      badge = coin.squeeze_buy && !coin.buy_signal
-        ? '<span class="signal-badge buy">💥 SQUEEZE BUY</span>'
-        : '<span class="signal-badge buy">🎯 BUY</span>';
+      if (coin.squeeze_buy && !coin.buy_signal) badge = '<span class="signal-badge buy">💥 SQUEEZE BUY</span>';
+      else if (coin.momentum_buy && !coin.buy_signal && !coin.squeeze_buy) badge = '<span class="signal-badge buy">🚀 MOMENTUM BUY</span>';
+      else badge = '<span class="signal-badge buy">🎯 BUY</span>';
     } else if (coin.sell_signal) {
       cardClass += ' sell-signal';
       badge = '<span class="signal-badge sell">OVERBOUGHT</span>';
@@ -1076,8 +1077,8 @@
       if (currentFilter === 'all') return true;
       if (currentFilter === 'sqz') return c.bb_squeezing || c.bb_squeeze_breakout;
       if (currentFilter === 'div') return c.rsi_divergence;
-      if (currentFilter === 'buy') return c.buy_signal || c.squeeze_buy;
-      if (currentFilter === 'lurking') return !(c.buy_signal || c.squeeze_buy || c.sell_signal || c.symbol === data.position);
+      if (currentFilter === 'buy') return c.buy_signal || c.squeeze_buy || c.momentum_buy;
+      if (currentFilter === 'lurking') return !(c.buy_signal || c.squeeze_buy || c.momentum_buy || c.sell_signal || c.symbol === data.position);
       return true;
     });
 
