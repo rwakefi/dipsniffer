@@ -905,28 +905,11 @@
   function renderMarket(data) {
     const grid = document.getElementById('coinGrid');
 
-    // Filter
-    const filtered = data.coins.filter(c => {
-      if (currentFilter === 'all') return true;
-      if (currentFilter === 'sqz') return c.bb_squeezing || c.bb_squeeze_breakout;
-      if (currentFilter === 'div') return c.rsi_divergence;
-      if (currentFilter === 'buy') return c.buy_signal || c.squeeze_buy || c.momentum_buy;
-      if (currentFilter === 'lurking') return !(c.buy_signal || c.squeeze_buy || c.momentum_buy || c.sell_signal || c.symbol === data.position);
-      return true;
-    });
-
-    // Sort (held coin pinned to top)
-    const sorted = [...filtered].sort((a, b) => {
+    // Pinned sorting (held coin pinned to top, otherwise native array order)
+    const sorted = [...data.coins].sort((a, b) => {
       const aHeld = a.symbol === data.position ? 1 : 0;
       const bHeld = b.symbol === data.position ? 1 : 0;
-      if (aHeld !== bHeld) return bHeld - aHeld;
-
-      if (currentSort === 'rsi') return (b.rsi || 50) - (a.rsi || 50);
-      if (currentSort === 'bb') return (b.bb_position || 0) - (a.bb_position || 0);
-      if (currentSort === 'strength') return (b.strength || 0) - (a.strength || 0);
-      if (currentSort === 'change_24h') return (b.change_24h || 0) - (a.change_24h || 0);
-      if (currentSort === 'vol_ratio') return (b.vol_ratio || 0) - (a.vol_ratio || 0);
-      return 0;
+      return bHeld - aHeld;
     });
 
     // Column-major reorder (top-to-bottom within each column)
