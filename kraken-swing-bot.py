@@ -449,6 +449,8 @@ ATR_TIGHTEN_GAIN = 0.10    # Gain threshold at which stop is fully tight (10%)
 STOP_LOSS_FALLBACK = 0.08  # Fallback fixed % if ATR unavailable
 BB_MIN_WIDTH_PCT = 3.0     # Ignore upper-BB exit if band width < 3% (squeeze filter)
 SQUEEZE_BB_POS_MAX = 0.92  # Require some headroom below the upper band for squeeze entries
+ASSUMED_ROUND_TRIP_COST_PCT = 0.80  # Conservative taker+taker fee model for market-order churn
+MIN_NET_PROFIT_BUFFER_PCT = 0.25    # Extra room above fee drag before taking discretionary profits
 VOLUME_SPIKE_MULT = 1.5    # Buy requires volume >= this × 20-candle average
 VOLUME_LOOKBACK = 20       # Candles to average for volume baseline
 LOOP_INTERVAL_SEC = 60    # 1 minute
@@ -487,6 +489,7 @@ STALE_EJECT_MIN_HOURS = 48
 STALE_EJECT_MAX_PNL_PCT = 1.5
 STALE_EJECT_MIN_HOURS_SINCE_HIGH = 12
 STALE_EJECT_MIN_STRENGTH_GAP = 12.0
+MIN_STALE_ROTATION_STRENGTH_GAP = 10.0  # Hard floor so stale swaps must clear a meaningful edge hurdle
 STALE_EJECT_MIN_TARGET_STRENGTH = 55.0
 
 # Momentum Continuation Buy (#30 — additive entry path for trending assets)
@@ -939,6 +942,11 @@ def place_order(side: str, symbol: str, volume: float, order_type: str = "market
         return None
 
 
+def required_profit_take_pct() -> float:
+    """Minimum gross gain required before discretionary profit-taking is allowed."""
+    return ASSUMED_ROUND_TRIP_COST_PCT + MIN_NET_PROFIT_BUFFER_PCT
+
+
 # ─── Network Retry Logic ─────────────────────────────────────────
 def _with_retry(func, *args, **kwargs):
     max_retries = NETWORK_RETRIES
@@ -1287,6 +1295,7 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
     bb_lower, bb_middle, bb_upper = bb
     bb_width = (bb_upper - bb_lower) / bb_middle * 100  # Width as % of middle
     bb_position = (price - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+    upper_band_runway_pct = max(0.0, ((bb_upper - price) / price) * 100) if price > 0 else 0.0
     change_24h = calc_pct_change(closes, REL_STRENGTH_24H_LOOKBACK)
     change_72h = calc_pct_change(closes, REL_STRENGTH_72H_LOOKBACK)
 
@@ -1396,6 +1405,7 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
         "bb_upper": round(bb_upper, 2),
         "bb_position": round(bb_position, 3),
         "bb_width": round(bb_width, 2),
+        "upper_band_runway_pct": round(upper_band_runway_pct, 3),
         "change_24h": round(change_24h, 2) if change_24h is not None else None,
         "change_72h": round(change_72h, 2) if change_72h is not None else None,
         "vol_ratio": vol_ratio,
@@ -1511,6 +1521,27 @@ def select_best_entry_candidate(analyses: dict[str, dict],
                 })
             buy_candidates = [c for c in buy_candidates if c['symbol'] != best['symbol']]
             continue
+        if best.get("squeeze_buy") and not best.get("buy_signal"):
+            required_runway_pct = required_profit_take_pct()
+            runway_pct = best.get("upper_band_runway_pct", 0.0)
+            if runway_pct < required_runway_pct:
+                log(
+                    f"  🪙 Fee Gate: {best['symbol']} squeeze runway {runway_pct:.2f}% < "
+                    f"required {required_runway_pct:.2f}% — skipping hot breakout"
+                )
+                if telemetry:
+                    telemetry["decision_events"].append({
+                        "candidate_symbol": best["symbol"],
+                        "decision_context": f"runway_pct={runway_pct:.2f} required={required_runway_pct:.2f}",
+                        "decision_stage": "veto_checks",
+                        "event_type": "VETO",
+                        "veto_reason": "fee_aware_squeeze_runway",
+                        "strength_score": best.get("strength"),
+                        "rsi": best.get("rsi"),
+                        "bb_position": best.get("bb_position"),
+                    })
+                buy_candidates = [c for c in buy_candidates if c['symbol'] != best['symbol']]
+                continue
         return best
 
     return None
@@ -1635,11 +1666,12 @@ def load_strategy_config():
     """Load optimized parameters from JSON, falling back to built-in defaults."""
     global RSI_PERIOD, RSI_OVERSOLD, RSI_OVERBOUGHT, BB_PERIOD, BB_STD_DEV
     global ATR_PERIOD, ATR_MULT_WIDE, ATR_MULT_TIGHT, ATR_TIGHTEN_GAIN, STOP_LOSS_FALLBACK, BB_MIN_WIDTH_PCT, SQUEEZE_BB_POS_MAX
+    global ASSUMED_ROUND_TRIP_COST_PCT, MIN_NET_PROFIT_BUFFER_PCT
     global VOLUME_SPIKE_MULT, VOLUME_LOOKBACK, YOLO_FEAR_THRESHOLD
     global YOLO_IDLE_HOURS, YOLO_COOLDOWN_HOURS, SQUEEZE_LOOKBACK, SQUEEZE_EXPAND_CANDLES
     global BAND_WALK_MIN, DAILY_RSI_KNIFE, FUNDING_RATE_NEGATIVE_THRESHOLD, FUNDING_RATE_SCORE_BONUS
     global REL_STRENGTH_24H_MULT, REL_STRENGTH_72H_MULT, REL_STRENGTH_SCORE_CAP
-    global STALE_EJECT_MIN_HOURS, STALE_EJECT_MAX_PNL_PCT, STALE_EJECT_MIN_HOURS_SINCE_HIGH, STALE_EJECT_MIN_STRENGTH_GAP, STALE_EJECT_MIN_TARGET_STRENGTH
+    global STALE_EJECT_MIN_HOURS, STALE_EJECT_MAX_PNL_PCT, STALE_EJECT_MIN_HOURS_SINCE_HIGH, STALE_EJECT_MIN_STRENGTH_GAP, MIN_STALE_ROTATION_STRENGTH_GAP, STALE_EJECT_MIN_TARGET_STRENGTH
     global MOMENTUM_RSI_MIN, MOMENTUM_RSI_MAX, MOMENTUM_BB_POS_MIN, MOMENTUM_SLOPE_MIN, MOMENTUM_GREEN_CANDLES, MOMENTUM_VOL_MIN_RATIO
 
     config_path = os.path.expanduser("~/.config/kraken/strategy_config.json")
@@ -1657,6 +1689,8 @@ def load_strategy_config():
         "STOP_LOSS_FALLBACK": STOP_LOSS_FALLBACK,
         "BB_MIN_WIDTH_PCT": BB_MIN_WIDTH_PCT,
         "SQUEEZE_BB_POS_MAX": SQUEEZE_BB_POS_MAX,
+        "ASSUMED_ROUND_TRIP_COST_PCT": ASSUMED_ROUND_TRIP_COST_PCT,
+        "MIN_NET_PROFIT_BUFFER_PCT": MIN_NET_PROFIT_BUFFER_PCT,
         "VOLUME_SPIKE_MULT": VOLUME_SPIKE_MULT,
         "VOLUME_LOOKBACK": VOLUME_LOOKBACK,
         "YOLO_FEAR_THRESHOLD": YOLO_FEAR_THRESHOLD,
@@ -1675,6 +1709,7 @@ def load_strategy_config():
         "STALE_EJECT_MAX_PNL_PCT": STALE_EJECT_MAX_PNL_PCT,
         "STALE_EJECT_MIN_HOURS_SINCE_HIGH": STALE_EJECT_MIN_HOURS_SINCE_HIGH,
         "STALE_EJECT_MIN_STRENGTH_GAP": STALE_EJECT_MIN_STRENGTH_GAP,
+        "MIN_STALE_ROTATION_STRENGTH_GAP": MIN_STALE_ROTATION_STRENGTH_GAP,
         "STALE_EJECT_MIN_TARGET_STRENGTH": STALE_EJECT_MIN_TARGET_STRENGTH,
         "MOMENTUM_RSI_MIN": MOMENTUM_RSI_MIN,
         "MOMENTUM_RSI_MAX": MOMENTUM_RSI_MAX,
@@ -1734,6 +1769,8 @@ def load_strategy_config():
     STOP_LOSS_FALLBACK = _parse("STOP_LOSS_FALLBACK", float, 0.01)
     BB_MIN_WIDTH_PCT = _parse("BB_MIN_WIDTH_PCT", float, 0.0)
     SQUEEZE_BB_POS_MAX = _parse("SQUEEZE_BB_POS_MAX", float, 0.0, 1.0)
+    ASSUMED_ROUND_TRIP_COST_PCT = _parse("ASSUMED_ROUND_TRIP_COST_PCT", float, 0.0, 10.0)
+    MIN_NET_PROFIT_BUFFER_PCT = _parse("MIN_NET_PROFIT_BUFFER_PCT", float, 0.0, 10.0)
     VOLUME_SPIKE_MULT = _parse("VOLUME_SPIKE_MULT", float, 0.0)
     VOLUME_LOOKBACK = _parse("VOLUME_LOOKBACK", int, 1)
     YOLO_FEAR_THRESHOLD = _parse("YOLO_FEAR_THRESHOLD", int, 0, 100)
@@ -1752,6 +1789,7 @@ def load_strategy_config():
     STALE_EJECT_MAX_PNL_PCT = _parse("STALE_EJECT_MAX_PNL_PCT", float)
     STALE_EJECT_MIN_HOURS_SINCE_HIGH = _parse("STALE_EJECT_MIN_HOURS_SINCE_HIGH", float, 0.0)
     STALE_EJECT_MIN_STRENGTH_GAP = _parse("STALE_EJECT_MIN_STRENGTH_GAP", float, 0.0)
+    MIN_STALE_ROTATION_STRENGTH_GAP = _parse("MIN_STALE_ROTATION_STRENGTH_GAP", float, 0.0)
     STALE_EJECT_MIN_TARGET_STRENGTH = _parse("STALE_EJECT_MIN_TARGET_STRENGTH", float, 0.0)
     MOMENTUM_RSI_MIN = _parse("MOMENTUM_RSI_MIN", float, 0.0, 100.0)
     MOMENTUM_RSI_MAX = _parse("MOMENTUM_RSI_MAX", float, 0.0, 100.0)
@@ -1760,6 +1798,11 @@ def load_strategy_config():
     MOMENTUM_GREEN_CANDLES = _parse("MOMENTUM_GREEN_CANDLES", int, 1, 20)
     MOMENTUM_VOL_MIN_RATIO = _parse("MOMENTUM_VOL_MIN_RATIO", float, 0.0)
     log(f"✅ Strategy parameters safely loaded from config.")
+    log(
+        f"🪙 Fee-aware gates: round-trip {ASSUMED_ROUND_TRIP_COST_PCT:.2f}% + "
+        f"buffer {MIN_NET_PROFIT_BUFFER_PCT:.2f}% = "
+        f"{required_profit_take_pct():.2f}% min discretionary profit"
+    )
 
 # Run configuration loader 
 load_strategy_config()
@@ -2038,9 +2081,21 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                 # Force the trade to run until the trailing stop catches it or it pierces the upper band.
                 is_momentum_trade = state.get("entry_reason") in ("squeeze_buy", "momentum_buy")
                 is_pure_rsi_alarm = analysis["rsi"] > RSI_OVERBOUGHT and not analysis.get("bb_exit", False)
-                
-                if is_momentum_trade and is_pure_rsi_alarm:
-                    log(f"  🟢 Momentum Bypass: Ignoring RSI={analysis['rsi']:.1f} exit alarm. Trusting Trailing Stop (${state['stop_loss']:.2f})")
+                min_profit_take_pct = required_profit_take_pct()
+                clears_profit_gate = hold_pct >= min_profit_take_pct
+
+                if is_pure_rsi_alarm and not clears_profit_gate:
+                    if is_momentum_trade:
+                        log(
+                            f"  🟢 Momentum Bypass: Ignoring RSI={analysis['rsi']:.1f} exit alarm. "
+                            f"Profit {hold_pct:+.2f}% has not cleared fee-aware gate "
+                            f"({min_profit_take_pct:.2f}%). Trusting Trailing Stop (${state['stop_loss']:.2f})"
+                        )
+                    else:
+                        log(
+                            f"  🪙 Fee Gate: Ignoring discretionary RSI exit at {hold_pct:+.2f}% "
+                            f"(need at least {min_profit_take_pct:.2f}% to clear assumed costs)"
+                        )
                 else:
                     # Layer 3: Ask Gemini if we should hold longer (skip in status mode)
                     if status_only:
@@ -2068,8 +2123,9 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                     candidate = select_best_entry_candidate(analyses, excluded_symbols={symbol}, telemetry=telemetry)
                     if candidate:
                         strength_gap = candidate["strength"] - analysis.get("strength", 0)
+                        required_strength_gap = max(STALE_EJECT_MIN_STRENGTH_GAP, MIN_STALE_ROTATION_STRENGTH_GAP)
                         if (candidate["strength"] >= STALE_EJECT_MIN_TARGET_STRENGTH and
-                                strength_gap >= STALE_EJECT_MIN_STRENGTH_GAP):
+                                strength_gap >= required_strength_gap):
                             if gemini_buy_check(candidate["symbol"], candidate["rsi"],
                                                 candidate["bb_position"], analyses, telemetry=telemetry):
                                 should_sell = True
@@ -2081,7 +2137,10 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                             else:
                                 log(f"  🤖 Gemini says RISK on stale rotation target {candidate['symbol']} — keeping current position")
                         else:
-                            log(f"  💤 Stale but no elite replacement — best alt {candidate['symbol']} gap +{strength_gap:.1f}")
+                            log(
+                                f"  💤 Stale but no elite replacement — best alt {candidate['symbol']} "
+                                f"gap +{strength_gap:.1f} (need +{required_strength_gap:.1f})"
+                            )
 
             if should_sell:
                 if dry_run or status_only:
