@@ -1543,8 +1543,7 @@ def load_state() -> dict:
         "trades": [],           # Trade history
         "total_pnl": 0,         # Running P&L
         "last_sell_time": None, # ISO timestamp — for YOLO idle tracking
-        "last_sell_symbol": None, # Anti-churn cooldown
-        "last_sell_price": 0,     # Anti-churn bypass
+        "cooldowns": {},        # Anti-churn history: {symbol: {time: iso, price: float}}
         "last_yolo_attempt": None,  # ISO timestamp — YOLO cooldown
     }
 
@@ -1840,8 +1839,12 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
     state["highest_time"] = None
     state.pop("entry_reason", None)
     state["last_sell_time"] = datetime.now(timezone.utc).isoformat()
-    state["last_sell_symbol"] = symbol
-    state["last_sell_price"] = current_price
+    if "cooldowns" not in state:
+        state["cooldowns"] = {}
+    state["cooldowns"][symbol] = {
+        "time": state["last_sell_time"],
+        "price": current_price
+    }
 
     return state
 
@@ -2063,19 +2066,18 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
 
         # Anti-churn cooldown (2.0 hours or 2% drop)
         excluded_symbols = set()
-        last_sell_sym = state.get("last_sell_symbol")
-        last_sell_time = state.get("last_sell_time")
-        last_sell_price = state.get("last_sell_price", 0)
+        cooldowns = state.get("cooldowns", {})
         
-        if last_sell_sym and last_sell_time and last_sell_sym in analyses:
-            hrs_since = hours_since(last_sell_time)
-            if hrs_since is not None and hrs_since < 2.0:
-                current_price = analyses[last_sell_sym]["price"]
-                if last_sell_price > 0 and current_price <= last_sell_price * 0.98:
-                    log(f"  📉 Anti-churn bypass: {last_sell_sym} dropped >2% from sell price (${last_sell_price:.2f} -> ${current_price:.2f})")
-                else:
-                    log(f"  ⏳ {last_sell_sym} is on anti-churn cooldown for {2.0 - hrs_since:.2f} more hours")
-                    excluded_symbols.add(last_sell_sym)
+        for sym, data in cooldowns.items():
+            if sym in analyses:
+                hrs_since = hours_since(data["time"])
+                if hrs_since is not None and hrs_since < 2.0:
+                    current_price = analyses[sym]["price"]
+                    if data["price"] > 0 and current_price <= data["price"] * 0.98:
+                        log(f"  📉 Anti-churn bypass: {sym} dropped >2% from sell price (${data['price']:.2f} -> ${current_price:.2f})")
+                    else:
+                        log(f"  ⏳ {sym} is on anti-churn cooldown for {2.0 - hrs_since:.2f} more hours")
+                        excluded_symbols.add(sym)
 
         best = select_best_gemini_approved_candidate(
             analyses,
