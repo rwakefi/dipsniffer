@@ -1970,17 +1970,25 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                 should_sell = True
                 reason = f"STOP-LOSS (${state['stop_loss']:.2f})"
             elif analysis["sell_signal"]:
-                # Layer 3: Ask Gemini if we should hold longer (skip in status mode)
-                if status_only:
-                    log(f"  🔴 Sell signal: RSI={analysis['rsi']}/BB={analysis['bb_position']:.2f} (Gemini skipped in status mode)")
-                elif gemini_sell_check(symbol, analysis["rsi"], state["entry_price"], price,
-                                       analysis["bb_position"], analysis.get("band_walk_count", 0), telemetry=telemetry):
-                    should_sell = True
-                    reason = f"RSI={analysis['rsi']}/BB={analysis['bb_position']:.2f} (Gemini: SELL)"
+                # Ignore pure RSI sell alarms if we bought a massive momentum setup.
+                # Force the trade to run until the trailing stop catches it or it pierces the upper band.
+                is_momentum_trade = state.get("entry_reason") in ("squeeze_buy", "momentum_buy")
+                is_pure_rsi_alarm = analysis["rsi"] > RSI_OVERBOUGHT and analysis["bb_position"] < 1.0
+                
+                if is_momentum_trade and is_pure_rsi_alarm:
+                    log(f"  🟢 Momentum Bypass: Ignoring RSI={analysis['rsi']:.1f} exit alarm. Trusting Trailing Stop (${state['stop_loss']:.2f})")
                 else:
-                    gemini_hold_override = True
-                    log(f"  🤖 Gemini says HOLD — bullish catalyst detected, keeping position")
-                    log(f"  Trailing stop still active at ${state['stop_loss']:.2f}")
+                    # Layer 3: Ask Gemini if we should hold longer (skip in status mode)
+                    if status_only:
+                        log(f"  🔴 Sell signal: RSI={analysis['rsi']}/BB={analysis['bb_position']:.2f} (Gemini skipped in status mode)")
+                    elif gemini_sell_check(symbol, analysis["rsi"], state["entry_price"], price,
+                                           analysis["bb_position"], analysis.get("band_walk_count", 0), telemetry=telemetry):
+                        should_sell = True
+                        reason = f"RSI={analysis['rsi']}/BB={analysis['bb_position']:.2f} (Gemini: SELL)"
+                    else:
+                        gemini_hold_override = True
+                        log(f"  🤖 Gemini says HOLD — bullish catalyst detected, keeping position")
+                        log(f"  Trailing stop still active at ${state['stop_loss']:.2f}")
 
             if not should_sell and not gemini_hold_override and not status_only:
                 now = datetime.now(timezone.utc)
