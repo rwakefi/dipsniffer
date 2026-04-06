@@ -1294,8 +1294,8 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
     cleared_high = price > recent_high
     
     # Squeeze breakout buy: bands expanding after squeeze + price above middle + volume
-    # Allowed even if rsi > 70, as long as it hasn't hit bb_exit OR it cleanly cleared a 20-bar high
-    squeeze_buy = bb_squeeze_breakout and vol_spike and (not bb_exit or cleared_high)
+    # Explicitly bans buying if it has pierced the upper band (bb_exit is active), preventing exhaustion-wick buys.
+    squeeze_buy = bb_squeeze_breakout and vol_spike and not bb_exit
 
     # Momentum Continuation Buy (#30 — additive entry path for trending assets)
     # Catches assets that are steadily climbing, not dipping
