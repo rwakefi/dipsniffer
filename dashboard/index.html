@@ -657,18 +657,12 @@
       <div class="position-label">Total Value</div>
       <div class="stat-number" id="totalEquity">--</div>
     </div>
-    <div class="stat-group">
-      <div class="position-label">Total P&L</div>
-      <div class="stat-number" id="totalPnl">--</div>
-    </div>
+
     <div class="stat-group">
       <div class="position-label">Trades</div>
       <div class="stat-number" id="tradeCount">--</div>
     </div>
-    <div class="stat-group">
-      <div class="position-label">ROI %</div>
-      <div class="stat-number" id="roiPct">--</div>
-    </div>
+
     <div class="stat-group">
       <div class="position-label">Stop-Loss</div>
       <div class="stat-number" id="stopLoss">--</div>
@@ -972,9 +966,6 @@
       }
 
       // Stats bar
-      const pnlEl = document.getElementById('totalPnl');
-      pnlEl.textContent = (data.total_pnl >= 0 ? '+' : '') + '$' + data.total_pnl.toFixed(2);
-      pnlEl.className = 'stat-number ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
 
       document.getElementById('tradeCount').textContent = data.trade_count;
 
@@ -982,9 +973,7 @@
       equityEl.textContent = data.total_equity !== undefined ? '$' + data.total_equity.toFixed(2) : '--';
       equityEl.className = 'stat-number ' + ((data.total_equity >= 100) ? 'positive' : 'negative');
 
-      const roiEl = document.getElementById('roiPct');
-      roiEl.textContent = data.roi_pct !== undefined ? data.roi_pct.toFixed(1) + '%' : '--';
-      roiEl.className = 'stat-number ' + ((data.roi_pct >= 0) ? 'positive' : 'negative');
+
 
       // Render coin grid and trade log
       renderMarket(data);
