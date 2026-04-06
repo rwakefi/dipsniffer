@@ -23,6 +23,7 @@ Usage:
   python3 kraken-swing-bot.py --status     # Show current position & signals
 """
 
+import atexit
 import json
 import subprocess
 import sys
@@ -48,6 +49,9 @@ STATE_FILE = os.path.expanduser("~/.config/kraken/swing-bot-state.json")
 LOG_FILE = os.path.expanduser("~/.config/kraken/swing-bot.log")
 DASHBOARD_DIR = os.path.expanduser("~/.config/kraken/dashboard")
 STATUS_FILE = os.path.join(DASHBOARD_DIR, "status.json")
+LOCK_FILE = os.path.expanduser("~/.config/kraken/swing-bot.lock")
+
+_bot_lock_handle = None
 
 class SQLiteLogger:
     def __init__(self, db_path="~/.config/kraken/market_history.db"):
@@ -444,6 +448,7 @@ ATR_MULT_TIGHT = 1.5       # Multiplier when fully tightened
 ATR_TIGHTEN_GAIN = 0.10    # Gain threshold at which stop is fully tight (10%)
 STOP_LOSS_FALLBACK = 0.08  # Fallback fixed % if ATR unavailable
 BB_MIN_WIDTH_PCT = 3.0     # Ignore upper-BB exit if band width < 3% (squeeze filter)
+SQUEEZE_BB_POS_MAX = 0.92  # Require some headroom below the upper band for squeeze entries
 VOLUME_SPIKE_MULT = 1.5    # Buy requires volume >= this × 20-candle average
 VOLUME_LOOKBACK = 20       # Candles to average for volume baseline
 LOOP_INTERVAL_SEC = 60    # 1 minute
@@ -1287,15 +1292,19 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
 
     # Signal scoring — volume confirmation required for math-based buys
     buy_signal = rsi < RSI_OVERSOLD and price <= bb_lower and vol_spike
+    above_upper_band = price >= bb_upper
     # Upper-BB exit only fires when bands are wide enough (prevents squeeze false exits)
-    bb_exit = price >= bb_upper and bb_width > BB_MIN_WIDTH_PCT
-    
-    recent_high = max(c["high"] for c in candles[-20:-1]) if len(candles) >= 20 else float("inf")
-    cleared_high = price > recent_high
-    
+    bb_exit = above_upper_band and bb_width > BB_MIN_WIDTH_PCT
+
     # Squeeze breakout buy: bands expanding after squeeze + price above middle + volume
-    # Explicitly bans buying if it has pierced the upper band (bb_exit is active), preventing exhaustion-wick buys.
-    squeeze_buy = bb_squeeze_breakout and vol_spike and not bb_exit
+    # Explicitly bans buying if price is already above the upper band, even when the
+    # width-filtered bb_exit stays quiet during a tight squeeze.
+    squeeze_buy = (
+        bb_squeeze_breakout
+        and vol_spike
+        and not above_upper_band
+        and bb_position <= SQUEEZE_BB_POS_MAX
+    )
 
     # Momentum Continuation Buy (#30 — additive entry path for trending assets)
     # Catches assets that are steadily climbing, not dipping
@@ -1395,6 +1404,7 @@ def analyze_asset(symbol: str, is_held_squeeze: bool = False) -> dict | None:
         "bb_squeezing": bb_squeezing,
         "bb_squeeze_breakout": bb_squeeze_breakout,
         "bb_squeeze_tightness": bb_squeeze_tightness,
+        "bb_exit": bb_exit,
         "band_walking": band_walking,
         "band_walk_count": band_walk_count,
         "buy_signal": buy_signal,
@@ -1564,6 +1574,51 @@ def save_state(state: dict):
         f.close()
 
 
+def acquire_singleton_lock() -> bool:
+    """Prevent multiple live bot processes from trading simultaneously."""
+    global _bot_lock_handle
+
+    if _bot_lock_handle is not None:
+        return True
+
+    Path(LOCK_FILE).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o644)
+    lock_handle = os.fdopen(fd, "r+")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_handle.close()
+        return False
+
+    lock_handle.seek(0)
+    lock_handle.truncate()
+    lock_handle.write(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "cmd": " ".join(sys.argv),
+            },
+            indent=2,
+        )
+    )
+    lock_handle.flush()
+    _bot_lock_handle = lock_handle
+    return True
+
+
+def release_singleton_lock():
+    """Release the bot singleton lock on clean shutdown."""
+    global _bot_lock_handle
+    if _bot_lock_handle is None:
+        return
+    try:
+        fcntl.flock(_bot_lock_handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        _bot_lock_handle.close()
+        _bot_lock_handle = None
+
+
 # ─── Logging ─────────────────────────────────────────────────────
 def log(msg: str):
     """Log message to file and stdout."""
@@ -1579,7 +1634,7 @@ def log(msg: str):
 def load_strategy_config():
     """Load optimized parameters from JSON, falling back to built-in defaults."""
     global RSI_PERIOD, RSI_OVERSOLD, RSI_OVERBOUGHT, BB_PERIOD, BB_STD_DEV
-    global ATR_PERIOD, ATR_MULT_WIDE, ATR_MULT_TIGHT, ATR_TIGHTEN_GAIN, STOP_LOSS_FALLBACK, BB_MIN_WIDTH_PCT
+    global ATR_PERIOD, ATR_MULT_WIDE, ATR_MULT_TIGHT, ATR_TIGHTEN_GAIN, STOP_LOSS_FALLBACK, BB_MIN_WIDTH_PCT, SQUEEZE_BB_POS_MAX
     global VOLUME_SPIKE_MULT, VOLUME_LOOKBACK, YOLO_FEAR_THRESHOLD
     global YOLO_IDLE_HOURS, YOLO_COOLDOWN_HOURS, SQUEEZE_LOOKBACK, SQUEEZE_EXPAND_CANDLES
     global BAND_WALK_MIN, DAILY_RSI_KNIFE, FUNDING_RATE_NEGATIVE_THRESHOLD, FUNDING_RATE_SCORE_BONUS
@@ -1601,6 +1656,7 @@ def load_strategy_config():
         "ATR_TIGHTEN_GAIN": ATR_TIGHTEN_GAIN,
         "STOP_LOSS_FALLBACK": STOP_LOSS_FALLBACK,
         "BB_MIN_WIDTH_PCT": BB_MIN_WIDTH_PCT,
+        "SQUEEZE_BB_POS_MAX": SQUEEZE_BB_POS_MAX,
         "VOLUME_SPIKE_MULT": VOLUME_SPIKE_MULT,
         "VOLUME_LOOKBACK": VOLUME_LOOKBACK,
         "YOLO_FEAR_THRESHOLD": YOLO_FEAR_THRESHOLD,
@@ -1677,6 +1733,7 @@ def load_strategy_config():
     ATR_TIGHTEN_GAIN = _parse("ATR_TIGHTEN_GAIN", float, 0.0)
     STOP_LOSS_FALLBACK = _parse("STOP_LOSS_FALLBACK", float, 0.01)
     BB_MIN_WIDTH_PCT = _parse("BB_MIN_WIDTH_PCT", float, 0.0)
+    SQUEEZE_BB_POS_MAX = _parse("SQUEEZE_BB_POS_MAX", float, 0.0, 1.0)
     VOLUME_SPIKE_MULT = _parse("VOLUME_SPIKE_MULT", float, 0.0)
     VOLUME_LOOKBACK = _parse("VOLUME_LOOKBACK", int, 1)
     YOLO_FEAR_THRESHOLD = _parse("YOLO_FEAR_THRESHOLD", int, 0, 100)
@@ -1767,7 +1824,11 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
             "price": price,
             "quantity": quantity,
             "time": state["entry_time"],
-            "signal_family": "squeeze" if "squeeze" in entry_reason else ("volatility" if "yolo" in entry_reason else "rsi_bb"),
+            "signal_family": (
+                "squeeze" if entry_reason == "squeeze_buy"
+                else ("momentum" if entry_reason == "momentum_buy"
+                      else ("volatility" if "yolo" in entry_reason else "rsi_bb"))
+            ),
             "entry_reason": entry_reason,
             "decision_context": f"bb_pos={analysis.get('bb_position')} rsi={analysis.get('rsi')}",
             "strength_score": analysis.get("strength"),
@@ -1976,7 +2037,7 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                 # Ignore pure RSI sell alarms if we bought a massive momentum setup.
                 # Force the trade to run until the trailing stop catches it or it pierces the upper band.
                 is_momentum_trade = state.get("entry_reason") in ("squeeze_buy", "momentum_buy")
-                is_pure_rsi_alarm = analysis["rsi"] > RSI_OVERBOUGHT and analysis["bb_position"] < 1.0
+                is_pure_rsi_alarm = analysis["rsi"] > RSI_OVERBOUGHT and not analysis.get("bb_exit", False)
                 
                 if is_momentum_trade and is_pure_rsi_alarm:
                     log(f"  🟢 Momentum Bypass: Ignoring RSI={analysis['rsi']:.1f} exit alarm. Trusting Trailing Stop (${state['stop_loss']:.2f})")
@@ -2033,9 +2094,12 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                         balances = get_balance() or {}
                         usd = balances.get("USD", 0)
                         if usd >= MIN_TRADE_USD:
-                            rotate_reason = ("squeeze_buy" if rotation_target.get("squeeze_buy")
-                                             and not rotation_target.get("buy_signal")
-                                             else "stale_rotation")
+                            if rotation_target.get("momentum_buy") and not rotation_target.get("buy_signal") and not rotation_target.get("squeeze_buy"):
+                                rotate_reason = "momentum_buy"
+                            elif rotation_target.get("squeeze_buy") and not rotation_target.get("buy_signal"):
+                                rotate_reason = "squeeze_buy"
+                            else:
+                                rotate_reason = "stale_rotation"
                             state = execute_buy(state, rotation_target, usd, entry_reason=rotate_reason, telemetry=telemetry)
                         else:
                             log(f"  Stale eject completed but insufficient USD to rotate: ${usd:.2f}")
@@ -2125,7 +2189,12 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
                     state["entry_price"] = best["price"]
                     state["entry_time"] = datetime.now(timezone.utc).isoformat()
                     state["quantity"] = existing
-                    state["entry_reason"] = "squeeze_buy" if best.get("squeeze_buy") and not best.get("buy_signal") else "buy_signal"
+                    if best.get("momentum_buy") and not best.get("buy_signal") and not best.get("squeeze_buy"):
+                        state["entry_reason"] = "momentum_buy"
+                    elif best.get("squeeze_buy") and not best.get("buy_signal"):
+                        state["entry_reason"] = "squeeze_buy"
+                    else:
+                        state["entry_reason"] = "buy_signal"
                     atr = best.get("atr")
                     state["stop_loss"] = round_price(calc_dynamic_stop(best["price"], best["price"], atr))
                     state["highest_since_entry"] = best["price"]
@@ -2306,6 +2375,11 @@ def write_dashboard_status(state: dict, analyses: dict):
 
 # ─── Entry Points ────────────────────────────────────────────────
 def main():
+    if not acquire_singleton_lock():
+        log("⚠️ Another DipSniffer bot process is already running — exiting this instance.")
+        return
+    atexit.register(release_singleton_lock)
+
     args = sys.argv[1:]
     dry_run = "--dry-run" in args
     status_only = "--status" in args

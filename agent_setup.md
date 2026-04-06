@@ -5,10 +5,9 @@ Hello, Antigravity Agent! Your human user wants you to set up the DipSniffer tra
 ## 1. System Dependencies
 Macs require explicit package management.
 1. Use your terminal tools to verify `python3` and `pip3` exist.
-2. Install the required Python data/exchange libraries:
-   `pip3 install ccxt pandas`
-3. The bot utilizes Gemini Flash as a risk-veto layer. Install the official Google Generative AI CLI via npm (ensure `npm` is available):
-   `npm install -g @google/generative-ai-cli`
+2. Install the required Python libraries:
+   `pip3 install ccxt pandas google-genai`
+3. The bot utilizes Gemini Flash through the official Python SDK, not the older Gemini CLI path.
 
 ## 2. Environment & Auth Initialization
 DipSniffer requires two sets of API keys to function: Kraken (for execution) and Gemini (for analysis).
@@ -20,11 +19,12 @@ DipSniffer requires two sets of API keys to function: Kraken (for execution) and
    api_key = "their_key_here"
    api_secret = "their_secret_here"
    ```
-4. **Ask the user** for their Google AI / Gemini API key. Add it to their shell profile (e.g. `~/.zshrc` or `~/.bash_profile`) as `export GEMINI_API_KEY="their_key_here"`.
+4. **Ask the user** for their Google AI / Gemini API key. Add it to their shell profile (e.g. `~/.zshrc` or `~/.bash_profile`) as `export GEMINI_API_KEY="their_key_here"`, or place it in a local secrets file that exports the same variable before launch.
 
 ## 3. Initializing the Strategy
 1. The default strategy configuration is bundled in the repo.
-2. Copy `strategy_config.json` from this repository to `~/.config/kraken/strategy_config.json`. (This is the current 14-day AutoQuant champion config: `37.36%` PnL / `3.98%` max DD as of 2026-04-05.)
+2. Copy `strategy_config.json` from this repository to `~/.config/kraken/strategy_config.json`.
+3. This file is intended to be the live baseline and may include newer safety controls such as squeeze-entry headroom limits and anti-churn tuning.
 
 ## 4. Boot Execution
 1. The user can start the bot and its dashboard using the wrapper script.

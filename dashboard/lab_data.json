@@ -200,5 +200,411 @@
     "new_dd": 6.661020477418679,
     "start_date": "2026-03-01",
     "end_date": "2026-03-15"
+  },
+  {
+    "id": "20260404_103910",
+    "timestamp": "2026-04-04T10:39:10.913120",
+    "mutations": {
+      "STALE_EJECT_MIN_HOURS": 12,
+      "SQUEEZE_EXPAND_CANDLES": 2,
+      "BB_STD_DEV": 2.5
+    },
+    "delta_pnl": 3.0360830514159147,
+    "delta_dd": -0.7022373481794677,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": -7.287875726583593,
+    "new_dd": 12.815271455858024,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_104128",
+    "timestamp": "2026-04-04T10:41:28.588522",
+    "mutations": {
+      "ATR_MULT_TIGHT": 2.2,
+      "ATR_MULT_WIDE": 4.0,
+      "VOLUME_LOOKBACK": 30
+    },
+    "delta_pnl": 7.541407295897136,
+    "delta_dd": -6.482163936084829,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": -2.7825514821023716,
+    "new_dd": 7.035344867952663,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_104226",
+    "timestamp": "2026-04-04T10:42:26.106723",
+    "mutations": {
+      "BB_PERIOD": 14,
+      "VOLUME_SPIKE_MULT": 4.5,
+      "SQUEEZE_EXPAND_CANDLES": 3
+    },
+    "delta_pnl": 10.166494784269627,
+    "delta_dd": -4.20095627952864,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": -0.15746399372987982,
+    "new_dd": 9.316552524508852,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_104358",
+    "timestamp": "2026-04-04T10:43:58.745656",
+    "mutations": {
+      "ATR_TIGHTEN_GAIN": 0.05,
+      "STALE_EJECT_MIN_STRENGTH_GAP": 15.0,
+      "STOP_LOSS_FALLBACK": 0.03
+    },
+    "delta_pnl": 11.655555420303426,
+    "delta_dd": -5.553417479559692,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": 1.3315966423039185,
+    "new_dd": 7.9640913244778,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_104424",
+    "timestamp": "2026-04-04T10:44:24.361589",
+    "mutations": {
+      "VOLUME_SPIKE_MULT": 3.5,
+      "RSI_OVERSOLD": 25,
+      "ATR_MULT_TIGHT": 2.0
+    },
+    "delta_pnl": 25.472982439299095,
+    "delta_dd": -9.161245040809577,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": 15.149023661299587,
+    "new_dd": 4.356263763227915,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_104635",
+    "timestamp": "2026-04-04T10:46:35.649193",
+    "mutations": {
+      "VOLUME_SPIKE_MULT": 3.5,
+      "ATR_PERIOD": 14,
+      "BB_MIN_WIDTH_PCT": 2.5
+    },
+    "delta_pnl": 28.428788657799,
+    "delta_dd": -8.932913189172652,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": 18.104829879799492,
+    "new_dd": 4.584595614864841,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_110435",
+    "timestamp": "2026-04-04T11:04:35.214597",
+    "mutations": {
+      "REL_STRENGTH_24H_MULT": 1.8,
+      "REL_STRENGTH_SCORE_CAP": 25.0,
+      "VOLUME_LOOKBACK": 15
+    },
+    "delta_pnl": 32.23343733160188,
+    "delta_dd": -9.596090757731451,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": 21.909478553602366,
+    "new_dd": 3.921418046306041,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_110516",
+    "timestamp": "2026-04-04T11:05:16.927938",
+    "mutations": {
+      "BB_PERIOD": 14,
+      "BAND_WALK_MIN": 6,
+      "ATR_MULT_WIDE": 4.5
+    },
+    "delta_pnl": 34.514906138224305,
+    "delta_dd": -8.676233114204141,
+    "base_pnl": -10.323958777999508,
+    "base_dd": 13.517508804037492,
+    "new_pnl": 24.190947360224797,
+    "new_dd": 4.841275689833351,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_113724",
+    "timestamp": "2026-04-04T11:37:24.505961",
+    "mutations": {
+      "BSI_MIN_BODY_PCT": 65.0,
+      "MAD_DECELERATION_THRESHOLD": 2.5,
+      "VVC_MIN_VOLUME_GROWTH": 1.5
+    },
+    "delta_pnl": 1.6317698575493753,
+    "delta_dd": -0.7679166299818783,
+    "base_pnl": 3.7123813736486224,
+    "base_dd": 2.3946111539565083,
+    "new_pnl": 5.344151231197998,
+    "new_dd": 1.62669452397463,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_124447",
+    "timestamp": "2026-04-04T12:44:47.456517",
+    "mutations": {
+      "VOLUME_SPIKE_MULT": 2.2,
+      "ATR_TIGHTEN_GAIN": 0.15,
+      "DAILY_RSI_KNIFE": 25
+    },
+    "delta_pnl": 5.09802551669468,
+    "delta_dd": 4.925148289203207e-09,
+    "base_pnl": 24.190947360224797,
+    "base_dd": 4.841275689833351,
+    "new_pnl": 29.288972876919477,
+    "new_dd": 4.841275694758499,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_125015",
+    "timestamp": "2026-04-04T12:50:15.185998",
+    "mutations": {
+      "ATR_MULT_WIDE": 4.0,
+      "ATR_TIGHTEN_GAIN": 0.18
+    },
+    "delta_pnl": 5.312197179054561,
+    "delta_dd": -0.91985764352731,
+    "base_pnl": 24.190947360224797,
+    "base_dd": 4.841275689833351,
+    "new_pnl": 29.503144539279358,
+    "new_dd": 3.921418046306041,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_131145",
+    "timestamp": "2026-04-04T13:11:45.326808",
+    "mutations": {
+      "BB_MIN_WIDTH_PCT": 0.8,
+      "VOLUME_SPIKE_MULT": 2.2,
+      "ATR_MULT_WIDE": 3.0
+    },
+    "delta_pnl": 2.3666709741174117,
+    "delta_dd": -1.0175370891510571,
+    "base_pnl": 29.503144539279358,
+    "base_dd": 3.921418046306041,
+    "new_pnl": 31.86981551339677,
+    "new_dd": 2.9038809571549837,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_133044",
+    "timestamp": "2026-04-04T13:30:44.070438",
+    "mutations": {
+      "ATR_TIGHTEN_GAIN": 0.11,
+      "SQUEEZE_EXPAND_CANDLES": 3,
+      "BB_STD_DEV": 2.5
+    },
+    "delta_pnl": 4.8738799578951095,
+    "delta_dd": -0.7701988237337924,
+    "base_pnl": 29.503144539279358,
+    "base_dd": 3.921418046306041,
+    "new_pnl": 34.37702449717447,
+    "new_dd": 3.1512192225722484,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_143950",
+    "timestamp": "2026-04-04T14:39:50.420991",
+    "mutations": {
+      "SQUEEZE_EXPAND_CANDLES": 3,
+      "STALE_EJECT_MIN_STRENGTH_GAP": 15.0,
+      "RSI_OVERSOLD": 30
+    },
+    "delta_pnl": 5.898322110752833,
+    "delta_dd": -0.3527283989380616,
+    "base_pnl": 29.503144539279358,
+    "base_dd": 3.921418046306041,
+    "new_pnl": 35.40146665003219,
+    "new_dd": 3.5686896473679792,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_151304",
+    "timestamp": "2026-04-04T15:13:04.681302",
+    "mutations": {
+      "ATR_MULT_TIGHT": 1.8,
+      "MOMENTUM_RSI_MIN": 50.0,
+      "VOLUME_SPIKE_MULT": 2.5
+    },
+    "delta_pnl": 0.0041278558022783685,
+    "delta_dd": -1.3122440457730065,
+    "base_pnl": -5.4891980840305905,
+    "base_dd": 16.814281873153774,
+    "new_pnl": -5.485070228228312,
+    "new_dd": 15.502037827380768,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_151706",
+    "timestamp": "2026-04-04T15:17:06.821991",
+    "mutations": {
+      "MOMENTUM_GREEN_CANDLES": 4,
+      "MOMENTUM_SLOPE_MIN": 2.5,
+      "MOMENTUM_RSI_MAX": 70.0
+    },
+    "delta_pnl": 3.230767507903374,
+    "delta_dd": -3.970867738163996,
+    "base_pnl": -5.4891980840305905,
+    "base_dd": 16.814281873153774,
+    "new_pnl": -2.2584305761272163,
+    "new_dd": 12.843414134989779,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_151916",
+    "timestamp": "2026-04-04T15:19:16.484390",
+    "mutations": {
+      "MOMENTUM_GREEN_CANDLES": 6,
+      "MOMENTUM_SLOPE_MIN": 5.0,
+      "MOMENTUM_RSI_MAX": 65.0
+    },
+    "delta_pnl": 35.84394980986124,
+    "delta_dd": -13.259625068058313,
+    "base_pnl": -5.4891980840305905,
+    "base_dd": 16.814281873153774,
+    "new_pnl": 30.35475172583065,
+    "new_dd": 3.554656805095461,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_160714",
+    "timestamp": "2026-04-04T16:07:14.211660",
+    "mutations": {
+      "MOMENTUM_SLOPE_MIN": 0.5,
+      "MOMENTUM_GREEN_CANDLES": 5,
+      "MOMENTUM_RSI_MAX": 65.0
+    },
+    "delta_pnl": 36.08102257301471,
+    "delta_dd": -13.259625068058313,
+    "base_pnl": -5.4891980840305905,
+    "base_dd": 16.814281873153774,
+    "new_pnl": 30.591824488984116,
+    "new_dd": 3.554656805095461,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_183839",
+    "timestamp": "2026-04-04T18:38:39.023944",
+    "mutations": {
+      "MOMENTUM_RSI_MIN": 40.0,
+      "ATR_TIGHTEN_GAIN": 0.05,
+      "SQUEEZE_EXPAND_CANDLES": 2
+    },
+    "delta_pnl": 0.13774214102577176,
+    "delta_dd": -5.244115364178015e-09,
+    "base_pnl": 31.86981551339677,
+    "base_dd": 2.9038809571549837,
+    "new_pnl": 32.00755765442254,
+    "new_dd": 2.9038809519108684,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_194355",
+    "timestamp": "2026-04-04T19:43:55.585489",
+    "mutations": {
+      "MOMENTUM_GREEN_CANDLES": 5,
+      "MOMENTUM_SLOPE_MIN": 6.5,
+      "MOMENTUM_RSI_MIN": 42.0
+    },
+    "delta_pnl": 0.5529921537864553,
+    "delta_dd": 1.1962215351601913e-07,
+    "base_pnl": 32.00755765442254,
+    "base_dd": 2.9038809519108684,
+    "new_pnl": 32.560549808209,
+    "new_dd": 2.903881071533022,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_215444",
+    "timestamp": "2026-04-04T21:54:44.382087",
+    "mutations": {
+      "ATR_PERIOD": 25,
+      "ATR_MULT_TIGHT": 2.2,
+      "MOMENTUM_RSI_MIN": 58.0
+    },
+    "delta_pnl": 0.5960722785393031,
+    "delta_dd": -0.470177868265659,
+    "base_pnl": 32.00755765442254,
+    "base_dd": 2.9038809519108684,
+    "new_pnl": 32.603629932961844,
+    "new_dd": 2.4337030836452094,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_215903",
+    "timestamp": "2026-04-04T21:59:03.718505",
+    "mutations": {
+      "MOMENTUM_BB_POS_MIN": 0.3,
+      "MOMENTUM_RSI_MIN": 40.0,
+      "MOMENTUM_RSI_MAX": 55.0
+    },
+    "delta_pnl": 0.6685213377092651,
+    "delta_dd": -0.470177868265659,
+    "base_pnl": 32.00755765442254,
+    "base_dd": 2.9038809519108684,
+    "new_pnl": 32.676078992131806,
+    "new_dd": 2.4337030836452094,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260404_230834",
+    "timestamp": "2026-04-04T23:08:34.921248",
+    "mutations": {
+      "RSI_OVERSOLD": 20,
+      "BB_MIN_WIDTH_PCT": 3.5,
+      "STALE_EJECT_MIN_HOURS": 6
+    },
+    "delta_pnl": 2.9357292010718368,
+    "delta_dd": 1.0781188329077853,
+    "base_pnl": 32.00755765442254,
+    "base_dd": 2.9038809519108684,
+    "new_pnl": 34.94328685549438,
+    "new_dd": 3.9819997848186537,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
+  },
+  {
+    "id": "20260405_112526",
+    "timestamp": "2026-04-05T11:25:26.361036",
+    "mutations": {
+      "STALE_EJECT_MAX_PNL_PCT": 2.5,
+      "STALE_EJECT_MIN_HOURS_SINCE_HIGH": 6
+    },
+    "delta_pnl": 2.4191089826016423,
+    "delta_dd": 0.0,
+    "base_pnl": 34.94328685549438,
+    "base_dd": 3.9819997848186537,
+    "new_pnl": 37.36239583809602,
+    "new_dd": 3.9819997848186537,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-04"
   }
 ]
