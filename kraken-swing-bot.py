@@ -2329,7 +2329,7 @@ def write_dashboard_status(state: dict, analyses: dict):
         "highest_time": state.get("highest_time"),
         "total_pnl": state.get("total_pnl", 0),
         "trade_count": len(state.get("trades", [])),
-        "last_trades": state.get("trades", [])[-5:],
+        "last_trades": state.get("trades", [])[-20:],
         "coins": sorted(coins, key=lambda x: x["rsi"]),
         "usd_balance": 0,  # Will be filled if available
     }
