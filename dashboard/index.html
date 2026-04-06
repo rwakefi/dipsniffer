@@ -689,10 +689,12 @@
     </div>
   </details>
 
-  <div class="trade-log" id="tradeLog">
-    <h3>🐊 Recent Kills</h3>
-    <div class="no-trades">No trades yet — DipSniffer is lurking...</div>
-  </div>
+  <details class="legend" style="margin-top: 24px;" open>
+    <summary>🐊 Recent Kills</summary>
+    <div class="trade-log" id="tradeLog" style="margin-top: 12px;">
+      <div class="no-trades">No trades yet — DipSniffer is lurking...</div>
+    </div>
+  </details>
 
   <div class="footer">
     <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s
@@ -851,7 +853,7 @@
   function renderTradeLog(trades) {
     const container = document.getElementById('tradeLog');
     if (!trades || trades.length === 0) {
-      container.innerHTML = '<h3>🐊 Recent Kills</h3><div class="no-trades">No trades yet — DipSniffer is lurking... <span class="eyes">👀</span></div>';
+      container.innerHTML = '<div class="no-trades">No trades yet — DipSniffer is lurking... <span class="eyes">👀</span></div>';
       return;
     }
 
@@ -864,7 +866,7 @@
       </div>
     `;
 
-    const visibleTrades = showFullLog ? [...trades].reverse() : [...trades].reverse().slice(0, 10);
+    const visibleTrades = showFullLog ? [...trades].reverse() : [...trades].reverse().slice(0, 20);
     
     const entries = visibleTrades.map(t => {
       const actionClass = t.action.toLowerCase();
@@ -884,11 +886,11 @@
     }).join('');
 
     let toggleBtn = '';
-    if (trades.length > 10) {
-      toggleBtn = `<button class="log-toggle" onclick="toggleLog()">${showFullLog ? '↑ Show Recent 10' : '↓ Show All (' + trades.length + ' trades)'}</button>`;
+    if (trades.length > 20) {
+      toggleBtn = `<button class="log-toggle" onclick="toggleLog()">${showFullLog ? '↑ Show Recent 20' : '↓ Show All (' + trades.length + ' trades)'}</button>`;
     }
 
-    container.innerHTML = `<h3>🐊 Recent Kills</h3>${header}${entries}${toggleBtn}`;
+    container.innerHTML = `${header}${entries}${toggleBtn}`;
   }
 
   // ─── Market Grid: Filter, Sort, Column-Major Layout ────────
