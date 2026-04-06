@@ -998,7 +998,6 @@
       pnlEl.className = 'stat-number ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
 
       document.getElementById('tradeCount').textContent = data.trade_count;
-      document.getElementById('cashBalance').textContent = '$' + (data.usd_balance || 0).toFixed(2);
 
       const equityEl = document.getElementById('totalEquity');
       equityEl.textContent = data.total_equity !== undefined ? '$' + data.total_equity.toFixed(2) : '--';
@@ -1007,9 +1006,6 @@
       const roiEl = document.getElementById('roiPct');
       roiEl.textContent = data.roi_pct !== undefined ? data.roi_pct.toFixed(1) + '%' : '--';
       roiEl.className = 'stat-number ' + ((data.roi_pct >= 0) ? 'positive' : 'negative');
-
-      document.getElementById('lastFee').textContent = data.last_fee !== undefined ? '$' + data.last_fee.toFixed(4) : '--';
-      document.getElementById('totalFees').textContent = data.total_fees !== undefined ? '$' + data.total_fees.toFixed(2) : '--';
 
       // Render coin grid and trade log
       renderMarket(data);
