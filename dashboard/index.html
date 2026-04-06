@@ -610,76 +610,9 @@
     padding: 4px 0;
   }
 
-  .chart-icon {
-    cursor: pointer;
-    margin-left: 6px;
-    font-size: 0.9rem;
-    color: var(--croc-glow);
-    user-select: none;
-  }
 
 
   /* Chart Modal Overlay */
-  .chart-overlay {
-    position: fixed;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(10, 26, 15, 0.95);
-    z-index: 9999;
-    display: none;
-    flex-direction: column;
-    padding: 24px;
-    backdrop-filter: blur(8px);
-  }
-
-  .chart-modal {
-    width: 100%;
-    height: 100%;
-    max-width: 1300px;
-    margin: 0 auto;
-    background: var(--swamp-dark);
-    border: 1px solid var(--swamp-border);
-    border-radius: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    position: relative;
-    box-shadow: 0 50px 100px rgba(0,0,0,0.5);
-  }
-
-  .chart-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--swamp-border);
-    background: rgba(255,255,255,0.02);
-  }
-
-  .chart-title {
-    font-family: var(--mono);
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: var(--croc-glow);
-  }
-
-  .close-chart {
-    background: rgba(231, 76, 60, 0.1);
-    border: 1px solid var(--danger-red);
-    color: var(--danger-red);
-    padding: 8px 16px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    transition: all 0.2s;
-  }
-
-  .close-chart:hover {
-    background: var(--danger-red);
-    color: white;
-  }
-
-  #chartContainer { flex: 1; }
 
   .coin-card .coin-symbol {
     cursor: pointer;
@@ -725,20 +658,8 @@
       <div class="stat-number" id="totalEquity">--</div>
     </div>
     <div class="stat-group">
-      <div class="position-label">Cash</div>
-      <div class="stat-number" id="cashBalance">--</div>
-    </div>
-    <div class="stat-group">
       <div class="position-label">Total P&L</div>
       <div class="stat-number" id="totalPnl">--</div>
-    </div>
-    <div class="stat-group">
-      <div class="position-label">Total Fees</div>
-      <div class="stat-number negative" id="totalFees">--</div>
-    </div>
-    <div class="stat-group">
-      <div class="position-label">Last Fee</div>
-      <div class="stat-number negative" id="lastFee">--</div>
     </div>
     <div class="stat-group">
       <div class="position-label">Trades</div>
@@ -752,24 +673,6 @@
       <div class="position-label">Stop-Loss</div>
       <div class="stat-number" id="stopLoss">--</div>
     </div>
-  </div>
-
-  <div class="controls" id="sortControls">
-    <span class="position-label" style="margin-bottom: 0; margin-right: 8px;">Sort Market By:</span>
-    <button class="sort-btn active" id="sort-rsi" onclick="setSort('rsi')">RSI (High)</button>
-    <button class="sort-btn" id="sort-bb" onclick="setSort('bb')">BB (High)</button>
-    <button class="sort-btn" id="sort-strength" onclick="setSort('strength')">Strength</button>
-    <button class="sort-btn" id="sort-change_24h" onclick="setSort('change_24h')">24h Change</button>
-    <button class="sort-btn" id="sort-vol_ratio" onclick="setSort('vol_ratio')">Volume Ratio</button>
-  </div>
-
-  <div class="controls" id="filterControls">
-    <span class="position-label" style="margin-bottom: 0; margin-right: 8px;">Filter By State:</span>
-    <button class="sort-btn active" id="filter-all" onclick="setFilter('all')">All</button>
-    <button class="sort-btn" id="filter-sqz" onclick="setFilter('sqz')">🟠SQZ</button>
-    <button class="sort-btn" id="filter-div" onclick="setFilter('div')">⬆DIV</button>
-    <button class="sort-btn" id="filter-buy" onclick="setFilter('buy')">🎯BUY</button>
-    <button class="sort-btn" id="filter-lurking" onclick="setFilter('lurking')">Lurking</button>
   </div>
 
   <div class="coin-grid" id="coinGrid"></div>
@@ -798,14 +701,10 @@
   </div>
 
   <div class="footer">
-    <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s · Click symbol for chart
+    <span class="eyes">👀</span> 16 eyes in the water · refreshes every 10s
   </div>
 </div>
 
-<div class="chart-overlay" id="chartOverlay">
-  <div class="chart-modal">
-    <div class="chart-header">
-      <div class="chart-title" id="chartLabel">📈 Loading Chart...</div>
       <button class="close-chart" onclick="closeChart()">✕ CLOSE</button>
     </div>
     <div id="chartContainer"></div>
@@ -817,8 +716,6 @@
 
   // ─── State ────────────────────────────────────────────────
   let lastData = null;
-  let currentSort = 'rsi';
-  let currentFilter = 'all';
   let showFullLog = false;
   let refreshInterval = null;
 
@@ -830,75 +727,14 @@
   }
 
   // ─── Sort & Filter Controls ───────────────────────────────
-  function setSort(metric) {
-    currentSort = metric;
-    document.querySelectorAll('#sortControls .sort-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.id === `sort-${metric}`);
-    });
-    if (lastData) renderMarket(lastData);
-  }
 
-  function setFilter(state) {
-    currentFilter = state;
-    document.querySelectorAll('#filterControls .sort-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.id === `filter-${state}`);
-    });
-    if (lastData) renderMarket(lastData);
-  }
 
   function toggleLog() {
     showFullLog = !showFullLog;
     if (lastData) renderTradeLog(lastData.last_trades);
   }
 
-  function openChart(symbol) {
-    const overlay = document.getElementById('chartOverlay');
-    const label = document.getElementById('chartLabel');
-    const container = document.getElementById('chartContainer');
-    
-    // TradingView format for Kraken matches typically. e.g. BTCUSD
-    // Some are slightly dynamic. 
-    let tvSymbol = symbol;
-    if (tvSymbol === 'XBT') tvSymbol = 'BTC'; 
-    const fullSymbol = `KRAKEN:${tvSymbol}USD`;
-    
-    label.textContent = `📈 ${symbol} / USD · Live Performance`;
-    overlay.style.display = 'flex';
-    
-    // Clear and build widget
-    container.innerHTML = '';
-    const widgetDiv = document.createElement('div');
-    widgetDiv.style.height = '100%';
-    widgetDiv.style.width = '100%';
-    container.appendChild(widgetDiv);
-    
-    const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/tv.js';
-    script.async = true;
-    script.onload = () => {
-      new TradingView.widget({
-        "autosize": true,
-        "symbol": fullSymbol,
-        "interval": "60",
-        "timezone": "Etc/UTC",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "toolbar_bg": "#f1f3f6",
-        "enable_publishing": false,
-        "hide_side_toolbar": false,
-        "allow_symbol_change": true,
-        "container_id": widgetDiv.id = 'tv_' + Date.now(),
-        "studies": ["RSI@tv-basicstudies", "BB@tv-basicstudies"]
-      });
-    };
-    document.head.appendChild(script);
-  }
 
-  function closeChart() {
-    document.getElementById('chartOverlay').style.display = 'none';
-    document.getElementById('chartContainer').innerHTML = '';
-  }
 
   function formatPrice(price) {
     if (price >= 1000) return '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -989,11 +825,10 @@
     return `
       <div class="${cardClass}">
         <div class="coin-header">
-          <div onclick="openChart('${coin.symbol}')">
+          <div>
             <span class="coin-symbol" title="View Chart">${coin.symbol}</span>
             <span class="coin-price">${formatPrice(coin.price)}</span>
-            <span class="chart-icon" title="Open Chart" onclick="openChart('${coin.symbol}'); event.stopPropagation();">📈</span>
-          </div>
+                      </div>
           <div class="coin-badges">${badge}${divBadge}${sqzBadge}${walkBadge}${scoreBadge}</div>
         </div>
         ${pnlInfo}
@@ -1034,8 +869,7 @@
       <div class="trade-entry trade-header">
         <span>Action & Asset</span>
         <span>Details (Price × Qty)</span>
-        <span>Fee</span>
-        <span>P&L</span>
+                <span>P&L</span>
         <span style="text-align: right">Time</span>
       </div>
     `;
@@ -1053,7 +887,6 @@
         <div class="trade-entry">
           <span class="trade-action ${actionClass}">${t.action === 'BUY' ? '🐊' : '💰'} ${t.action} ${t.symbol}</span>
           <span>${formatPrice(t.price)} × ${t.quantity}</span>
-          <span style="color: var(--text-muted)">${feeValue}</span>
           <span class="trade-pnl ${pnlClass}">${pnlValue}</span>
           <span style="color: var(--text-muted); text-align: right">${time}</span>
         </div>
