@@ -32,11 +32,36 @@ import os
 import math
 import site
 import sqlite3
+import threading
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from urllib.error import URLError
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import fcntl
+
+
+def load_optional_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        for raw_line in path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            value = value.strip().strip('"').strip("'")
+            os.environ[key] = value
+    except Exception:
+        pass
+
+
+load_optional_env_file(Path.home() / ".config/kraken/dipsniffer.env")
 
 # Ensure user site-packages is available (for nohup/safe_exec environments)
 _user_site = site.getusersitepackages()
@@ -46,12 +71,23 @@ import ccxt
 
 # ─── Configuration ───────────────────────────────────────────────
 STATE_FILE = os.path.expanduser("~/.config/kraken/swing-bot-state.json")
+CONTROL_FILE = os.path.expanduser("~/.config/kraken/swing-bot-control.json")
+CONTROL_TOKEN_FILE = os.path.expanduser("~/.config/kraken/swing-bot-control.token")
 LOG_FILE = os.path.expanduser("~/.config/kraken/swing-bot.log")
 DASHBOARD_DIR = os.path.expanduser("~/.config/kraken/dashboard")
 STATUS_FILE = os.path.join(DASHBOARD_DIR, "status.json")
 LOCK_FILE = os.path.expanduser("~/.config/kraken/swing-bot.lock")
+CONTROL_API_HOST = os.getenv("DIPSNIFFER_CONTROL_HOST", "0.0.0.0")
+CONTROL_API_PORT = int(os.getenv("DIPSNIFFER_CONTROL_PORT", "8078"))
+NTFY_BASE_URL = os.getenv("DIPSNIFFER_NTFY_BASE_URL", "https://ntfy.sh").rstrip("/")
+NTFY_TOPIC = os.getenv("DIPSNIFFER_NTFY_TOPIC", "").strip()
+NTFY_URL = os.getenv("DIPSNIFFER_NTFY_URL", "").strip()
+NTFY_CLICK_URL = os.getenv("DIPSNIFFER_NTFY_CLICK_URL", "").strip()
 
 _bot_lock_handle = None
+_control_server = None
+_control_server_thread = None
+_control_wake_event = threading.Event()
 
 class SQLiteLogger:
     def __init__(self, db_path="~/.config/kraken/market_history.db"):
@@ -1577,6 +1613,7 @@ def load_state() -> dict:
         "position": None,       # Current asset held (e.g., "BTC")
         "entry_price": 0,       # Price we entered at
         "entry_time": None,     # ISO timestamp
+        "entry_reason": None,   # Why we entered the current position
         "quantity": 0,          # How much we hold
         "stop_loss": 0,         # Stop-loss price
         "highest_since_entry": 0,  # For trailing stop
@@ -1603,6 +1640,58 @@ def save_state(state: dict):
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     finally:
         f.close()
+
+
+def default_control_state() -> dict:
+    return {
+        "paused": False,
+        "pause_since": None,
+        "pause_reason": None,
+        "pending_action": None,
+        "last_action": None,
+    }
+
+
+def load_control_state() -> dict:
+    if Path(CONTROL_FILE).exists():
+        try:
+            with open(CONTROL_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return {**default_control_state(), **data}
+        except Exception:
+            pass
+    return default_control_state()
+
+
+def save_control_state(control_state: dict):
+    Path(CONTROL_FILE).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(CONTROL_FILE, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        f = os.fdopen(fd, "w")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            json.dump(control_state, f, indent=2)
+        finally:
+            f.flush()
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    finally:
+        f.close()
+
+
+def get_or_create_control_token() -> str:
+    token_path = Path(CONTROL_TOKEN_FILE)
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    if token_path.exists():
+        token = token_path.read_text().strip()
+        if token:
+            return token
+
+    token = secrets.token_urlsafe(24)
+    with open(token_path, "w") as f:
+        f.write(token + "\n")
+    os.chmod(token_path, 0o600)
+    return token
 
 
 def acquire_singleton_lock() -> bool:
@@ -1659,6 +1748,176 @@ def log(msg: str):
     Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
+
+
+class ControlRequestHandler(BaseHTTPRequestHandler):
+    server_version = "DipSnifferControl/1.0"
+
+    def log_message(self, fmt, *args):
+        return
+
+    def _set_headers(self, status_code=200):
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-DipSniffer-Token")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
+
+    def _write_json(self, status_code, payload):
+        self._set_headers(status_code)
+        self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    def _read_json_body(self):
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length <= 0:
+            return {}
+        raw = self.rfile.read(content_length).decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    def _require_token(self):
+        supplied = (self.headers.get("X-DipSniffer-Token") or "").strip()
+        expected = get_or_create_control_token()
+        return supplied and secrets.compare_digest(supplied, expected)
+
+    def do_OPTIONS(self):
+        self._set_headers(204)
+
+    def do_GET(self):
+        if self.path != "/control/status":
+            self._write_json(404, {"ok": False, "error": "not_found"})
+            return
+
+        state = load_state()
+        control = load_control_state()
+        self._write_json(200, {
+            "ok": True,
+            "paused": control.get("paused", False),
+            "pause_since": control.get("pause_since"),
+            "pause_reason": control.get("pause_reason"),
+            "pending_action": control.get("pending_action"),
+            "last_action": control.get("last_action"),
+            "position": state.get("position"),
+            "control_port": CONTROL_API_PORT,
+        })
+
+    def do_POST(self):
+        if not self._require_token():
+            self._write_json(403, {"ok": False, "error": "invalid_token"})
+            return
+
+        try:
+            payload = self._read_json_body()
+        except Exception:
+            self._write_json(400, {"ok": False, "error": "invalid_json"})
+            return
+
+        if self.path == "/control/pause":
+            paused = bool(payload.get("paused"))
+            reason = (payload.get("reason") or "dashboard").strip()
+            control = load_control_state()
+            control["paused"] = paused
+            if paused:
+                control["pause_since"] = datetime.now(timezone.utc).isoformat()
+                control["pause_reason"] = reason
+                log(f"⏸️ Manual pause engaged via control API ({reason})")
+            else:
+                log("▶️ Manual pause cleared via control API")
+                control["pause_since"] = None
+                control["pause_reason"] = None
+            control["last_action"] = {
+                "type": "pause_toggle",
+                "paused": paused,
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "source": reason,
+            }
+            save_control_state(control)
+            _control_wake_event.set()
+            self._write_json(200, {
+                "ok": True,
+                "paused": control["paused"],
+                "pause_since": control["pause_since"],
+                "pause_reason": control["pause_reason"],
+            })
+            return
+
+        if self.path == "/control/force-eject":
+            state = load_state()
+            position = state.get("position")
+            if not position:
+                self._write_json(409, {"ok": False, "error": "no_open_position"})
+                return
+
+            expected_phrase = f"EJECT {position}"
+            confirm_text = (payload.get("confirm_text") or "").strip().upper()
+            if confirm_text != expected_phrase:
+                self._write_json(400, {
+                    "ok": False,
+                    "error": "confirmation_mismatch",
+                    "expected": expected_phrase,
+                })
+                return
+
+            control = load_control_state()
+            control["pending_action"] = {
+                "type": "force_eject",
+                "symbol": position,
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "source": "dashboard",
+            }
+            control["last_action"] = {
+                "type": "force_eject_requested",
+                "symbol": position,
+                "requested_at": control["pending_action"]["requested_at"],
+                "source": "dashboard",
+            }
+            save_control_state(control)
+            log(f"🚨 Manual force-eject requested for {position} via control API")
+            _control_wake_event.set()
+            self._write_json(202, {
+                "ok": True,
+                "queued": True,
+                "symbol": position,
+                "paused": control.get("paused", False),
+            })
+            return
+
+        self._write_json(404, {"ok": False, "error": "not_found"})
+
+
+def start_control_server():
+    global _control_server, _control_server_thread
+
+    if _control_server is not None:
+        return True
+
+    get_or_create_control_token()
+
+    try:
+        server = ThreadingHTTPServer((CONTROL_API_HOST, CONTROL_API_PORT), ControlRequestHandler)
+    except OSError as e:
+        log(f"⚠️ Control API failed to start on {CONTROL_API_HOST}:{CONTROL_API_PORT}: {e}")
+        return False
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True, name="dipsniffer-control-api")
+    thread.start()
+    _control_server = server
+    _control_server_thread = thread
+    log(f"🛟 Control API listening on {CONTROL_API_HOST}:{CONTROL_API_PORT}")
+    log(f"🔐 Control token file: {CONTROL_TOKEN_FILE}")
+    return True
+
+
+def stop_control_server():
+    global _control_server, _control_server_thread
+    if _control_server is None:
+        return
+    try:
+        _control_server.shutdown()
+        _control_server.server_close()
+    finally:
+        _control_server = None
+        _control_server_thread = None
 
 
 # ─── Configuration Loader ──────────────────────────────────────────
@@ -1804,8 +2063,90 @@ def load_strategy_config():
         f"{required_profit_take_pct():.2f}% min discretionary profit"
     )
 
+
+def ntfy_endpoint():
+    if NTFY_URL:
+        return NTFY_URL
+    if NTFY_TOPIC:
+        return f"{NTFY_BASE_URL}/{quote(NTFY_TOPIC, safe='')}"
+    return None
+
+
+def classify_trade_notification(event: str, reason: str = ""):
+    reason_lower = (reason or "").lower()
+    if event == "BUY":
+        return {
+            "priority": "default",
+            "tags": ["green_circle", "shopping_cart", "chart_with_upwards_trend"],
+        }
+    if "manual force eject" in reason_lower or "force-eject" in reason_lower:
+        return {
+            "priority": "high",
+            "tags": ["rotating_light", "door", "money_with_wings"],
+        }
+    if "stop-loss" in reason_lower:
+        return {
+            "priority": "high",
+            "tags": ["warning", "octagonal_sign", "chart_with_downwards_trend"],
+        }
+    return {
+        "priority": "default",
+        "tags": ["white_check_mark", "money_with_wings", "chart_with_upwards_trend"],
+    }
+
+
+def format_hold_duration(entry_time_iso: str | None) -> str | None:
+    if not entry_time_iso:
+        return None
+    try:
+        started = datetime.fromisoformat(entry_time_iso)
+        elapsed = datetime.now(timezone.utc) - started
+        total_minutes = max(0, int(elapsed.total_seconds() // 60))
+        hours, minutes = divmod(total_minutes, 60)
+        if hours:
+            return f"{hours}h {minutes}m"
+        return f"{minutes}m"
+    except Exception:
+        return None
+
+
+def send_trade_notification(
+    title: str,
+    message: str,
+    priority: str = "default",
+    tags: list[str] | None = None,
+    click: str | None = None,
+) -> None:
+    endpoint = ntfy_endpoint()
+    if not endpoint:
+        return
+
+    data = message.encode("utf-8")
+    headers = {
+        "Title": title,
+        "Priority": priority,
+        "Content-Type": "text/plain; charset=utf-8",
+    }
+    if tags:
+        headers["Tags"] = ",".join(tags)
+    if click:
+        headers["Click"] = click
+    request = Request(
+        endpoint,
+        data=data,
+        method="POST",
+        headers=headers,
+    )
+    try:
+        with urlopen(request, timeout=5) as response:
+            response.read()
+    except Exception as exc:
+        log(f"  ⚠️ ntfy notification failed: {exc}")
+
 # Run configuration loader 
 load_strategy_config()
+if ntfy_endpoint():
+    log(f"🔔 ntfy trade notifications enabled: {ntfy_endpoint()}")
 
 # ─── Trade Execution ─────────────────────────────────────────────
 def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason: str = "", telemetry: dict = None) -> dict:
@@ -1840,15 +2181,29 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
     state["stop_loss"] = round_price(stop_loss)
     state["highest_since_entry"] = price
     state["highest_time"] = state["entry_time"]
+    reason = entry_reason or "signal"
+    state["entry_reason"] = reason
     
     position_id = f"pos_{int(time.time() * 1000000)}_{symbol}"
     state["position_id"] = position_id
-    
-    if entry_reason:
-        state["entry_reason"] = entry_reason
 
     log(f"  ✅ BOUGHT {quantity} {symbol} @ ${price:.2f} (${buy_amount:.2f})")
     log(f"     Stop-loss: ${stop_loss:.2f} | RSI: {analysis['rsi']} | BB pos: {analysis['bb_position']}")
+    notification_meta = classify_trade_notification("BUY", reason)
+    send_trade_notification(
+        f"DipSniffer BUY {symbol}",
+        (
+            f"Bought {quantity} {symbol} @ ${price:.4f}\n"
+            f"Capital deployed: ${buy_amount:.2f}\n"
+            f"Entry reason: {reason}\n"
+            f"Stop-loss: ${stop_loss:.4f}\n"
+            f"RSI / BB: {analysis['rsi']} / {analysis['bb_position']:.2f}\n"
+            f"Strength: {analysis.get('strength', 0):.2f}"
+        ),
+        priority=notification_meta["priority"],
+        tags=notification_meta["tags"],
+        click=NTFY_CLICK_URL or None,
+    )
 
     state["trades"].append({
         "action": "BUY",
@@ -1857,6 +2212,7 @@ def execute_buy(state: dict, analysis: dict, usd_available: float, entry_reason:
         "quantity": quantity,
         "time": state["entry_time"],
         "rsi": analysis["rsi"],
+        "reason": reason,
     })
 
     if telemetry is not None:
@@ -1902,12 +2258,28 @@ def execute_sell(state: dict, reason: str, current_price: float, telemetry: dict
         log(f"  SELL FAILED for {symbol}")
         return state
 
+    hold_duration = format_hold_duration(state.get("entry_time"))
     pnl = (current_price - state["entry_price"]) * quantity
     pnl_pct = (current_price / state["entry_price"] - 1) * 100
     state["total_pnl"] += pnl
 
     log(f"  ✅ SOLD {quantity} {symbol} @ ${current_price:.2f} ({reason})")
     log(f"     P&L: ${pnl:+.2f} ({pnl_pct:+.1f}%) | Total P&L: ${state['total_pnl']:+.2f}")
+    notification_meta = classify_trade_notification("SELL", reason)
+    hold_line = f"Hold time: {hold_duration}\n" if hold_duration else ""
+    send_trade_notification(
+        f"DipSniffer SELL {symbol}",
+        (
+            f"Sold {quantity} {symbol} @ ${current_price:.4f}\n"
+            f"Reason: {reason}\n"
+            f"{hold_line}"
+            f"P&L: ${pnl:+.2f} ({pnl_pct:+.2f}%)\n"
+            f"Total P&L: ${state['total_pnl']:+.2f}"
+        ),
+        priority=notification_meta["priority"],
+        tags=notification_meta["tags"],
+        click=NTFY_CLICK_URL or None,
+    )
 
     state["trades"].append({
         "action": "SELL",
@@ -1969,6 +2341,7 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
             "mode": "status" if status_only else ("dry_run" if dry_run else "live"),
             "fear_greed_index": get_fear_greed(),
             "btc_crash_guard_active": False,
+            "paused": False,
         },
         "all_analyses": {},
         "decision_events": [],
@@ -1976,6 +2349,8 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
     }
 
     state = load_state()
+    control_state = load_control_state()
+    telemetry["cycle"]["paused"] = control_state.get("paused", False)
 
     # Analyze all assets
     analyses = {}
@@ -2016,6 +2391,72 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
         log(f"  {symbol}: ${analysis['price']:.2f} | RSI: {analysis['rsi']} | "
             f"BB: [{analysis['bb_lower']:.2f} - {analysis['bb_upper']:.2f}] "
             f"(pos: {analysis['bb_position']:.2f}){vol_tag}{div_tag}{sq_tag}{walk_tag}{funding_tag}{rel_tag}{flag}")
+
+    pending_action = control_state.get("pending_action")
+    if pending_action and pending_action.get("type") == "force_eject":
+        target_symbol = pending_action.get("symbol")
+        if not state.get("position"):
+            log("  🛟 Manual force-eject request found, but no open position remains")
+            control_state["pending_action"] = None
+            control_state["last_action"] = {
+                "type": "force_eject",
+                "status": "no_position",
+                "requested_at": pending_action.get("requested_at"),
+                "handled_at": datetime.now(timezone.utc).isoformat(),
+                "source": pending_action.get("source", "dashboard"),
+            }
+            save_control_state(control_state)
+        elif state["position"] != target_symbol:
+            log(
+                f"  🛟 Manual force-eject target mismatch ({target_symbol}) vs current hold "
+                f"({state['position']}) — ejecting current hold instead"
+            )
+        if state.get("position"):
+            current_symbol = state["position"]
+            current_analysis = analyses.get(current_symbol)
+            if current_analysis is None:
+                log(f"  ⚠️ Manual force-eject queued for {current_symbol}, but no market data is available yet")
+            else:
+                log(f"  🚨 Executing manual force-eject for {current_symbol}")
+                state = execute_sell(
+                    state,
+                    "MANUAL FORCE EJECT (dashboard override)",
+                    current_analysis["price"],
+                    telemetry=telemetry,
+                )
+                control_state["pending_action"] = None
+                control_state["last_action"] = {
+                    "type": "force_eject",
+                    "status": "executed",
+                    "symbol": current_symbol,
+                    "requested_at": pending_action.get("requested_at"),
+                    "handled_at": datetime.now(timezone.utc).isoformat(),
+                    "source": pending_action.get("source", "dashboard"),
+                }
+                save_control_state(control_state)
+                save_state(state)
+                write_dashboard_status(state, analyses)
+                log("  🛟 Manual force-eject complete — skipping automatic re-entry until next cycle")
+                log("Cycle complete")
+                return telemetry
+
+    if control_state.get("paused"):
+        pause_since = control_state.get("pause_since")
+        pause_reason = control_state.get("pause_reason") or "manual override"
+        if state.get("position"):
+            log(
+                f"  ⏸️ BOT PAUSED since {pause_since or 'unknown'} ({pause_reason}) — "
+                f"monitoring {state['position']} only, no automated buys or sells"
+            )
+        else:
+            log(
+                f"  ⏸️ BOT PAUSED since {pause_since or 'unknown'} ({pause_reason}) — "
+                f"cash mode frozen, no automated buys"
+            )
+        save_state(state)
+        write_dashboard_status(state, analyses)
+        log("Cycle complete")
+        return telemetry
 
     # ─── Currently holding a position ───
     if state["position"]:
@@ -2341,6 +2782,7 @@ def run_cycle(dry_run: bool = False, status_only: bool = False) -> dict:
 # ─── Dashboard Status ────────────────────────────────────────────
 def write_dashboard_status(state: dict, analyses: dict):
     """Write JSON status for the HTML dashboard."""
+    control_state = load_control_state()
     coins = []
     for sym in PAIRS:
         a = analyses.get(sym)
@@ -2379,6 +2821,12 @@ def write_dashboard_status(state: dict, analyses: dict):
     status = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "bot_running": True,
+        "paused": control_state.get("paused", False),
+        "pause_since": control_state.get("pause_since"),
+        "pause_reason": control_state.get("pause_reason"),
+        "pending_action": control_state.get("pending_action"),
+        "last_manual_action": control_state.get("last_action"),
+        "control_api_port": CONTROL_API_PORT,
         "position": state.get("position"),
         "entry_price": state.get("entry_price", 0),
         "entry_time": state.get("entry_time"),
@@ -2438,6 +2886,7 @@ def main():
         log("⚠️ Another DipSniffer bot process is already running — exiting this instance.")
         return
     atexit.register(release_singleton_lock)
+    atexit.register(stop_control_server)
 
     args = sys.argv[1:]
     dry_run = "--dry-run" in args
@@ -2451,6 +2900,9 @@ def main():
     if status_only:
         log("📊 STATUS MODE — showing signals only")
 
+    if loop and not dry_run and not status_only:
+        start_control_server()
+
     if loop:
         log(f"🔄 LOOP MODE — running every {LOOP_INTERVAL_SEC}s (Ctrl+C to stop)")
         while True:
@@ -2460,7 +2912,8 @@ def main():
                     logger.consume_cycle(telemetry)
                     logger.evaluate_closed_trades()
                 log(f"Next cycle in {LOOP_INTERVAL_SEC}s...")
-                time.sleep(LOOP_INTERVAL_SEC)
+                _control_wake_event.wait(timeout=LOOP_INTERVAL_SEC)
+                _control_wake_event.clear()
             except KeyboardInterrupt:
                 log("Bot stopped by user")
                 break
