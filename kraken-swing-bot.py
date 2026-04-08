@@ -61,7 +61,7 @@ def load_optional_env_file(path: Path) -> None:
         pass
 
 
-load_optional_env_file(Path.home() / ".config/kraken/dipsniffer.env")
+load_optional_env_file(Path.home() / ".config/dipsniffer/dipsniffer.env")
 
 # Ensure user site-packages is available (for nohup/safe_exec environments)
 _user_site = site.getusersitepackages()
@@ -70,13 +70,13 @@ if _user_site not in sys.path:
 import ccxt
 
 # ─── Configuration ───────────────────────────────────────────────
-STATE_FILE = os.path.expanduser("~/.config/kraken/swing-bot-state.json")
-CONTROL_FILE = os.path.expanduser("~/.config/kraken/swing-bot-control.json")
-CONTROL_TOKEN_FILE = os.path.expanduser("~/.config/kraken/swing-bot-control.token")
-LOG_FILE = os.path.expanduser("~/.config/kraken/swing-bot.log")
-DASHBOARD_DIR = os.path.expanduser("~/.config/kraken/dashboard")
+STATE_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-state.json")
+CONTROL_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-control.json")
+CONTROL_TOKEN_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot-control.token")
+LOG_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot.log")
+DASHBOARD_DIR = os.path.expanduser("~/.config/dipsniffer/dashboard")
 STATUS_FILE = os.path.join(DASHBOARD_DIR, "status.json")
-LOCK_FILE = os.path.expanduser("~/.config/kraken/swing-bot.lock")
+LOCK_FILE = os.path.expanduser("~/.config/dipsniffer/swing-bot.lock")
 CONTROL_API_HOST = os.getenv("DIPSNIFFER_CONTROL_HOST", "0.0.0.0")
 CONTROL_API_PORT = int(os.getenv("DIPSNIFFER_CONTROL_PORT", "8078"))
 NTFY_BASE_URL = os.getenv("DIPSNIFFER_NTFY_BASE_URL", "https://ntfy.sh").rstrip("/")
@@ -90,7 +90,7 @@ _control_server_thread = None
 _control_wake_event = threading.Event()
 
 class SQLiteLogger:
-    def __init__(self, db_path="~/.config/kraken/market_history.db"):
+    def __init__(self, db_path="~/.config/dipsniffer/market_history.db"):
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -403,7 +403,7 @@ def _load_kraken_keys() -> tuple[str, str]:
     if api_key and api_secret:
         return api_key, api_secret
     # Fallback: read from Kraken CLI config
-    config_path = os.path.expanduser("~/.config/kraken/config.toml")
+    config_path = os.path.expanduser("~/.config/dipsniffer/config.toml")
     if os.path.exists(config_path):
         with open(config_path) as f:
             for line in f:
@@ -1933,7 +1933,7 @@ def load_strategy_config():
     global STALE_EJECT_MIN_HOURS, STALE_EJECT_MAX_PNL_PCT, STALE_EJECT_MIN_HOURS_SINCE_HIGH, STALE_EJECT_MIN_STRENGTH_GAP, MIN_STALE_ROTATION_STRENGTH_GAP, STALE_EJECT_MIN_TARGET_STRENGTH
     global MOMENTUM_RSI_MIN, MOMENTUM_RSI_MAX, MOMENTUM_BB_POS_MIN, MOMENTUM_SLOPE_MIN, MOMENTUM_GREEN_CANDLES, MOMENTUM_VOL_MIN_RATIO
 
-    config_path = os.path.expanduser("~/.config/kraken/strategy_config.json")
+    config_path = os.path.expanduser("~/.config/dipsniffer/strategy_config.json")
     
     defaults = {
         "RSI_PERIOD": RSI_PERIOD,
